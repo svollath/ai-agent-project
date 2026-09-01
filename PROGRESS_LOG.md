@@ -52,7 +52,9 @@ Full detail in `deliverables/DECISIONS.md`. Summary:
    - Verified directly (no model/network call) with normal, denied, and not-found inputs — see transcript around this decision for the exact checks run.
    - Phase 6 still needs to wrap both as typed LangChain tools that receive `employee` from verified caller identity, not from the model.
 
-## Files Changed So Far (uncommitted)
+## Files Changed So Far
+
+Committed on `main` at `5eaad98` ("update to day1 status"):
 
 ```
 M data/database/company.db          (regenerated teaching fixture, expected)
@@ -62,7 +64,7 @@ M deliverables/PRODUCT_BRIEF.md
 M src/company_assistant/database.py
 ```
 
-Nothing has been committed yet — all work is in the working tree on `main`.
+Working tree is clean as of this commit.
 
 ## Open Items / Not Yet Decided
 
