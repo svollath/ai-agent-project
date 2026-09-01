@@ -4,32 +4,33 @@ Complete this matrix before implementing semantic retrieval. Use `Allow` or `Den
 
 | Source or record class | Customer Success | Engineering | People Operations | Finance | Owner and reason |
 | --- | --- | --- | --- | --- | --- |
-| General company handbook | Allow | Allow | Allow | Allow | Company-wide operating guidance |
-| Customer communications | Decide | Decide | Decide | Decide | |
-| Local GitHub work items | Decide | Decide | Decide | Decide | |
-| Live GitHub work items | Decide | Decide | Decide | Decide | |
-| Financial records | Decide | Decide | Decide | Decide | |
-| Restricted HR records | Deny | Deny | Allow | Deny | People Operations only |
+| General company handbook | Allow | Allow | Allow | Allow | Company-wide operating guidance (`SLACK-GENERAL-001`, `DOC-SECURITY-404`) |
+| Customer communications | Allow | Allow (scoped) | Deny | Allow | Customer Success owns the relationship; Finance approves amounts; Engineering sees only the subset tied to a release it's accountable for (`EMAIL-ACME-301/302`, both carry `engineering` in `allowed_roles`) — the general customer-operations Slack channel (`SLACK-CX-201`) does **not** list `engineering` and stays denied. Enforced per-record via existing `allowed_roles`, not a blanket category switch. |
+| Local GitHub work items | Allow (scoped) | Allow | Deny | Allow (scoped) | Engineering owns all issues. CS is only listed on customer-impacting issues (`GH-131`); Finance only on billing/release-blocking issues (`GH-142`). `GH-149` (rollback rehearsal) lists engineering only. |
+| Live GitHub work items | Allow (scoped) | Allow | Deny | Allow (scoped) | Must mirror the local policy exactly (see Enforcement Notes) — the GitHub API has no concept of Northstar's four roles, so the connector has to assign `allowed_roles` itself, e.g. by label, not "anyone the token can reach." |
+| Financial / customer records (`customers`, `support_cases` tables) | Allow | Deny | Deny | Allow | Revenue, account value, and support-case ownership are Customer Success + Finance business, out of scope for this product's Engineering profile. |
+| Local database — project status (`projects` table) | Allow | Allow | Deny | Allow | Operational status (e.g. Atlas "at risk", target date) is shared release-coordination fact needed by CS, Engineering, and Finance alike; not confidential. Enforced in `database.py` (`SUPPORT_CASE_ALLOWED_ROLES`, `PROJECT_ALLOWED_ROLES`) as of Phase 2 — a denied role gets `None`/`[]`, indistinguishable from "not found," so a lookup can't be used to infer whether a record exists. Phase 6 still needs to wrap these functions as typed LangChain tools with the `employee` context supplied by the caller, not by the model. |
+| Restricted HR records | Deny | Deny | Allow | Deny | People Operations only (`DOC-HR-001`, `confidentiality: restricted`) |
 
 ## Source Governance
 
 | Source | Stable ID strategy | Citation target | Update or deletion policy | Fallback |
 | --- | --- | --- | --- | --- |
-| Slack export | | | | |
-| Email export | | | | |
-| Documents | | | | |
-| Local GitHub export | | | | |
-| Live GitHub repository | | | | |
-| SQLite records | | | | |
+| Slack export | Fixture-assigned `source_id` (e.g. `SLACK-ATLAS-101`), stable regardless of edits or re-export order | `source_path` (channel export file) + channel/thread title | Full folder rescan on each sync; a `source_id` absent from the latest export is removed from the index | None — Slack stays export-only in the core project, no live connector planned |
+| Email export | `X-Source-ID` header, required at parse time | `source_path` (`.eml` file) | Static teaching fixture; changes only via files added/removed from the folder, detected by rescan | None — local-only, and out of scope for the Engineering profile anyway |
+| Documents | Front-matter `source_id`, required at parse time | `source_path` (Markdown file) + title | Folder rescan; `status: archived` (e.g. `DOC-POLICY-OLD-402`) marks a document superseded **without deleting the file** — retrieval/ranking must down-rank or exclude archived docs explicitly, deletion alone won't catch this | None |
+| Local GitHub export | Fixture `source_id` keyed to issue number, not title | `source_path` (`issues.json`) — no real URL available locally | Folder rescan; an issue missing from the export is removed from the index | This **is** the fallback for the live connector |
+| Live GitHub repository | Derive from the stable issue **number** (e.g. `GH-{repo}-{number}`), never the title, since titles can change | Real issue URL (`html_url` from the API) | Poll and upsert by `updated_at`; a closed issue still exists (state change, not deletion) — true removal only if an issue disappears from the paginated fetch entirely | Local `issues.json` export when the API is unavailable, unauthenticated, or rate-limited; the UI must disclose which state is active (Phase 4 completion evidence) |
+| SQLite records | No convention exists yet beyond the ad hoc `f"DB-{case_id}"` built inside `get_support_case()` — needs an equivalent for `projects` (e.g. `DB-{project_id}`) before it becomes a tool | Table name + primary key, not a file path | Whole-database regeneration via `initialize_database()`; no incremental change tracking exists — acceptable for a fixed teaching DB, but state this limitation explicitly rather than implying live sync | None — single source of truth, no live DB |
 
 ## Enforcement Notes
 
-- **Identity source in the prototype:**
-- **Where filtering happens:**
-- **Default when metadata is missing:**
-- **How citations are rechecked:**
-- **How live API access differs from employee authorization:**
-- **Where GitHub credentials are stored:**
-- **How identity is rechecked before an approved action:**
-- **What the prototype does not secure yet:**
-- **Evidence that unauthorized content is excluded before retrieval:**
+- **Identity source in the prototype:** The four fictional profiles in `api.EMPLOYEES`, selected via the Streamlit selectbox or the `employee_id` field on `/ask`. This is a self-declared identity, not authentication — anyone calling the API can claim to be any employee.
+- **Where filtering happens:** `filter_permitted()` in `security/permissions.py`, called inside `lexical_search()` before documents are ranked or shown. Semantic and hybrid retrieval must call the same function in the same position — before candidates are scored, not after.
+- **Default when metadata is missing:** `parse_roles()` and `parse_confidentiality()` raise `ValueError` on missing, empty, or unrecognized values, so a malformed record fails the connector load loudly instead of silently entering the index. `filter_permitted()` itself is a simple membership check, so any role not explicitly listed is implicitly denied.
+- **How citations are rechecked:** Not yet — `service.py` filters once before ranking and trusts the result set through to the final `Citation`. Phase 6's `open_source` tool must re-run the permission check at citation-resolution time so a stale index entry (record deleted or reclassified since last sync) can't leak through a cached chunk.
+- **How live API access differs from employee authorization:** GitHub repo access is binary (the token can read the repo or it can't) and says nothing about which of the four Northstar roles should see a given issue. The live connector must assign `allowed_roles` per issue using an explicit, documented policy (e.g. by label — `billing`/`release-blocker` → include finance, `support` → include customer_success) that mirrors the local export's existing assignments, never "if the token can read it, every employee can see it."
+- **Where GitHub credentials are stored:** `.env` only (`GITHUB_TOKEN`), as a fine-grained PAT scoped to one repository with read-only issue access. Never in prompts, retrieved content, traces, screenshots, or committed files.
+- **How identity is rechecked before an approved action:** Not yet designed. Phase 6 must re-verify the requester's `employee_id` and role immediately before executing the one approved action (the Finance-validation issue), rather than trusting the identity captured when the proposal was drafted.
+- **What the prototype does not secure yet:** Real authentication (the profile selector is self-declared and the API accepts any `employee_id`); the SQLite tables carry no role or confidentiality metadata at the data layer, so access control there depends entirely on the not-yet-built tool wrapper; no protection against a client simply switching `employee_id` between requests; no audit-log tamper protection; no rate limiting.
+- **Evidence that unauthorized content is excluded before retrieval:** `filter_permitted()` is directly unit-testable against `CompanyDocument` fixtures without a model or network call — e.g. assert that Leo's `engineering` role never receives `DOC-HR-001` from `filter_permitted()`, and that `SLACK-ATLAS-103` (the injection message) is retrievable but its instruction is never followed. This is exactly the "no model key or network call needed" completion evidence required by Phase 3.

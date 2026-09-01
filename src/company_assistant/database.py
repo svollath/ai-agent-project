@@ -4,7 +4,14 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+from company_assistant.models import EmployeeContext
+
 DATABASE_PATH = Path("data/database/company.db")
+
+# Mirrors deliverables/ACCESS_MATRIX.md. The schema itself carries no role or
+# confidentiality metadata, so narrow lookups must enforce it themselves.
+SUPPORT_CASE_ALLOWED_ROLES = frozenset({"customer_success", "finance"})
+PROJECT_ALLOWED_ROLES = frozenset({"customer_success", "engineering", "finance"})
 
 
 def initialize_database(path: Path = DATABASE_PATH) -> None:
@@ -102,8 +109,18 @@ def initialize_database(path: Path = DATABASE_PATH) -> None:
         connection.commit()
 
 
-def get_support_case(case_id: str, path: Path = DATABASE_PATH) -> dict[str, str] | None:
-    """Return one support case through a parameterized read-only query."""
+def get_support_case(
+    case_id: str, employee: EmployeeContext, path: Path = DATABASE_PATH
+) -> dict[str, str] | None:
+    """Return one support case through a parameterized read-only query.
+
+    Returns None both when the case does not exist and when the employee's
+    role is not permitted, so a denied role cannot infer whether a case
+    exists from the response shape alone.
+    """
+
+    if employee.role not in SUPPORT_CASE_ALLOWED_ROLES:
+        return None
 
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
         connection.row_factory = sqlite3.Row
@@ -120,6 +137,32 @@ def get_support_case(case_id: str, path: Path = DATABASE_PATH) -> dict[str, str]
     result = dict(row)
     result["source_id"] = f"DB-{case_id}"
     return result
+
+
+def list_project_status(
+    employee: EmployeeContext, path: Path = DATABASE_PATH
+) -> list[dict[str, str]]:
+    """Return structured project facts through a parameterized read-only query.
+
+    Returns an empty list when the employee's role is not permitted, matching
+    the deny-by-default filtering used for unstructured sources.
+    """
+
+    if employee.role not in PROJECT_ALLOWED_ROLES:
+        return []
+
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            "SELECT project_id, name, owner, status, target_date FROM projects"
+        ).fetchall()
+
+    results = []
+    for row in rows:
+        result = dict(row)
+        result["source_id"] = f"DB-{result['project_id']}"
+        results.append(result)
+    return results
 
 
 if __name__ == "__main__":
