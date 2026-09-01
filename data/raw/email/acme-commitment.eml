@@ -1,0 +1,17 @@
+From: maya.chen@northstar.example
+To: operations@acmefreight.example
+Subject: Atlas migration and invoice follow-up
+Date: Tue, 18 Aug 2026 15:30:00 +0000
+Message-ID: <acme-atlas-20260818@northstar.example>
+X-Source-ID: EMAIL-ACME-301
+X-Access-Roles: customer_success,engineering,finance
+X-Confidentiality: internal
+X-Occurred-At: 2026-08-18T15:30:00+00:00
+Content-Type: text/plain; charset="utf-8"
+
+Hello Acme team,
+
+We expect the Atlas billing migration to be available by 5 September. We are also investigating duplicate invoice CASE-481 and will confirm any refund after Finance review.
+
+Regards,
+Maya

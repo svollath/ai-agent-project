@@ -1,0 +1,22 @@
+[
+  {
+    "source_id": "SLACK-CX-201",
+    "channel": "customer-operations",
+    "author": "Maya Chen",
+    "timestamp": "2026-08-24T10:10:00+00:00",
+    "thread_title": "Acme Freight escalation",
+    "text": "Acme Freight case CASE-481 remains open. The customer received a duplicate invoice, but no refund has been approved. Follow the current refund policy and obtain Finance approval for amounts above EUR 5,000.",
+    "allowed_roles": ["customer_success", "finance"],
+    "confidentiality": "internal"
+  },
+  {
+    "source_id": "SLACK-GENERAL-001",
+    "channel": "announcements",
+    "author": "Elena Weiss",
+    "timestamp": "2026-08-01T08:00:00+00:00",
+    "thread_title": "Company operating priorities",
+    "text": "Our current priorities are customer trust, reliable billing, and evidence-based release decisions. Internal assistants must cite sources and remain read-only during the prototype phase.",
+    "allowed_roles": ["customer_success", "engineering", "people_operations", "finance"],
+    "confidentiality": "internal"
+  }
+]

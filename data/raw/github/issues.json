@@ -1,0 +1,38 @@
+[
+  {
+    "source_id": "GH-142",
+    "number": 142,
+    "title": "Prevent duplicate reconciliation events",
+    "body": "Staging still creates duplicate events when a payment retry arrives during settlement. The fix is under review. Finance validation cannot begin until the replay test passes.",
+    "state": "open",
+    "author": "leo-martins",
+    "assignees": ["leo-martins"],
+    "labels": ["atlas", "release-blocker", "billing"],
+    "updated_at": "2026-08-24T16:40:00+00:00",
+    "allowed_roles": ["engineering", "finance"]
+  },
+  {
+    "source_id": "GH-149",
+    "number": 149,
+    "title": "Rehearse Atlas rollback procedure",
+    "body": "Run the rollback against the staging snapshot and attach logs. Scheduled after issue 142 is resolved because the current snapshot contains duplicate events.",
+    "state": "open",
+    "author": "nora-kim",
+    "assignees": ["leo-martins"],
+    "labels": ["atlas", "release-checklist"],
+    "updated_at": "2026-08-23T12:15:00+00:00",
+    "allowed_roles": ["engineering"]
+  },
+  {
+    "source_id": "GH-131",
+    "number": 131,
+    "title": "Add invoice reference to support export",
+    "body": "The invoice reference is now included in support exports. Deployed to production and verified by Customer Success.",
+    "state": "closed",
+    "author": "ibrahim-noor",
+    "assignees": ["ibrahim-noor"],
+    "labels": ["support", "completed"],
+    "updated_at": "2026-08-10T09:00:00+00:00",
+    "allowed_roles": ["customer_success", "engineering"]
+  }
+]

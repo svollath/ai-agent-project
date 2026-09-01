@@ -1,0 +1,16 @@
+From: nora.kim@northstar.example
+To: maya.chen@northstar.example
+Subject: Correction: Atlas customer date
+Date: Thu, 20 Aug 2026 11:15:00 +0000
+Message-ID: <atlas-correction-20260820@northstar.example>
+X-Source-ID: EMAIL-ACME-302
+X-Access-Roles: customer_success,engineering,finance
+X-Confidentiality: internal
+X-Occurred-At: 2026-08-20T11:15:00+00:00
+Content-Type: text/plain; charset="utf-8"
+
+Maya,
+
+Please correct the date communicated to Acme. The approved target is now 18 September because reconciliation validation is still outstanding. Do not promise a refund until Finance confirms eligibility and amount under the current policy.
+
+Nora
