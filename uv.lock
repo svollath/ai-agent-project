@@ -17,6 +17,7 @@ source = { editable = "." }
 dependencies = [
     { name = "chromadb" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-chroma" },
     { name = "langchain-groq" },
@@ -33,6 +34,7 @@ dependencies = [
 requires-dist = [
     { name = "chromadb", specifier = ">=1.5.5" },
     { name = "fastapi", specifier = ">=0.135.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "langchain", specifier = ">=1.3.11" },
     { name = "langchain-chroma", specifier = ">=1.1.0" },
     { name = "langchain-groq", specifier = ">=1.1.3" },
