@@ -32,7 +32,7 @@ Flagged risk: Phases 8–10 (comparative evaluation, Docker packaging, release d
 | 1 — Product Brief | **Done** | `deliverables/PRODUCT_BRIEF.md` complete. Merged two independently-drafted versions (mine + a parallel `PRODUCT_BRIEF_adw01.md` from another agent/tool run, since deleted by the user). |
 | 2 — Access Matrix | **Done** | `deliverables/ACCESS_MATRIX.md` complete, grounded in actual fixture `allowed_roles`/`confidentiality` values (not guessed). Two judgment calls approved by the user (see Decisions below). |
 | 3 — Deterministic baseline | **Done** | `deliverables/EVALUATION_REPORT.md` filled in for the lexical baseline: all 12 eval cases run through `answer_with_baseline`, plus a direct DB role-gating spot check. No model/network call. See summary below. |
-| 4 — Live GitHub connector | Not started | Next step. |
+| 4 — Live GitHub connector | Prep done, connector not started | Live repo chosen and seeded (see below); connector code itself not written yet. |
 | 5 — Managed RAG (Chroma, hybrid) | Not started | |
 | 6 — Tools + agent | Not started | Database-layer role checks (see below) are already done ahead of this phase; still need LangChain tool wrappers + the agent itself. |
 | 7 — Full product experience | Not started | |
@@ -62,6 +62,13 @@ Full detail in `deliverables/EVALUATION_REPORT.md`. Headline results:
 - **5 of 12 cases exercise capabilities that don't exist yet** and were marked "Not tested" or scored Fail on `Final behavior` by design: EVAL-004/008 (structured DB tool), EVAL-009 (conversation memory), EVAL-010 (action-proposal/approval flow), EVAL-011 (live index lifecycle).
 - Streamlit and FastAPI both start cleanly against the regenerated DB and return identical, correctly role-filtered answers — confirms the two interfaces share `answer_with_baseline` rather than duplicating logic.
 - **Release recommendation at this checkpoint:** Do not demonstrate yet (expected at Phase 3 of 10) — see full rationale in the report.
+
+## Phase 4 Prep (2026-09-02)
+
+- **Live repository:** `AlexDeWilde/ai-agent-project-test-repo` — new, public, created specifically for this project. `.env` (untracked) sets `GITHUB_REPOSITORY=AlexDeWilde/ai-agent-project-test-repo` and leaves `GITHUB_TOKEN` blank since the repo is public and needs no auth for read-only issue access.
+- **Seeded 8 issues** (6 open / 2 closed, one contributor assigned to two of them) with GitHub's default labels (`bug`, `enhancement`, `documentation`, `question`, `help wanted`) plus two new custom labels created for this project: `finance-review` and `customer-impact`.
+- **Label → role mapping decision:** this repo's issues are genuine software-engineering content about the connector itself (not the fictional Atlas story), so there's no natural label taxonomy mapping to Northstar's four roles. Default policy: every live issue is `engineering`-visible; the two custom labels are an explicit, documented exception used only to exercise the same per-issue role-scoping mechanism the local fixture uses (`GH-131` → `customer_success`, `GH-142` → `finance`) — `finance-review` (issues #6, #7) also grants `finance`, `customer-impact` (issue #8) also grants `customer_success`. This mirrors `ACCESS_MATRIX.md`'s existing "Live GitHub work items" row and should be written into that file when the connector is built.
+- **Not yet built:** the actual live-fetch code (`connectors/github.py` still only reads the local export), pagination/error handling, the live-vs-fallback trigger and disclosure, and updating `ACCESS_MATRIX.md`/`.env.example` to reflect the above.
 
 ## Files Changed So Far
 
