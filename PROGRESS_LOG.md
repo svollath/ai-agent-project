@@ -33,7 +33,7 @@ Flagged risk: Phases 8–10 (comparative evaluation, Docker packaging, release d
 | 2 — Access Matrix | **Done** | `deliverables/ACCESS_MATRIX.md` complete, grounded in actual fixture `allowed_roles`/`confidentiality` values (not guessed). Two judgment calls approved by the user (see Decisions below). |
 | 3 — Deterministic baseline | **Done** | `deliverables/EVALUATION_REPORT.md` filled in for the lexical baseline: all 12 eval cases run through `answer_with_baseline`, plus a direct DB role-gating spot check. No model/network call. See summary below. |
 | 4 — Live GitHub connector | **Done** | `connectors/github.py` fetches live issues with pagination/error handling, falls back to the local Atlas fixture, and discloses which in `Answer.trace`. All 3 pieces of completion evidence captured with real calls. See summary below. |
-| 5 — Managed RAG (Chroma, hybrid) | Not started | |
+| 5 — Managed RAG (Chroma, hybrid) | **Done** | `indexing.py` (chunking/manifest/sync) + `retrieval.py` (`semantic_search`, `hybrid_search`) + `service.py` (`answer_with_semantic`, `answer_with_hybrid`). Chunking and retrieval-mode comparisons run with real evidence; **lexical stays the default** (14/15 recall vs 12/15 semantic, 13/15 hybrid, on this corpus). Not yet wired into Streamlit/FastAPI (Phase 7). See summary below. |
 | 6 — Tools + agent | Not started | Database-layer role checks (see below) are already done ahead of this phase; still need LangChain tool wrappers + the agent itself. |
 | 7 — Full product experience | Not started | |
 | 8 — Comparative evaluation | Not started | |
@@ -79,30 +79,42 @@ Full detail in `deliverables/EVALUATION_REPORT.md`. Headline results:
 - **Verification approach:** a deterministic, network-free suite (`httpx.MockTransport`) covering label→role mapping, pagination via the `Link` header, and 403/404/network-error handling, plus 3 real network calls for the actual completion evidence — no formal test framework introduced, matching how Phase 2/3 evidence was gathered.
 - Added `httpx` as a direct dependency; `load_all_documents()` and `answer_with_baseline` signatures changed to surface connector state notes into `Answer.trace` (only caller was `service.py`, so low blast radius).
 
+## Phase 5 Summary (2026-09-02)
+
+Full detail in `deliverables/EVALUATION_REPORT.md`. Headline results:
+
+- **Chunking comparison, decided by evidence:** whole-document (8/15 expected sources found) vs. paragraph-level chunking (12/15, same latency) on the pinned local corpus. Paragraph chunking won and is now the default (`chunk_by_paragraph` in `indexing.py`) — the added complexity (multiple chunks/doc) is justified by the recall gain, not assumed.
+- **Retrieval-mode comparison, decided by evidence — lexical stays the default:** on this small, ID-heavy corpus, lexical (14/15 recall, 0 forbidden, 0.1ms) beat semantic (12/15, 7.9ms) and hybrid/RRF (13/15, 8.4ms). Semantic missed `GH-142` twice because a topically-similar-but-wrong issue ranked higher by cosine similarity — a real instance of the "plausible but imprecise" weakness the course's own mode-comparison table warns about, not a bug. Flagged as corpus-specific and worth re-checking if the corpus grows (Residual Risks).
+- **Permission enforcement, two layers, verified on real data:** (1) a Chroma metadata `where` filter excludes denied chunks before the ANN search runs, (2) `semantic_search`/`hybrid_search` re-check every result against the *current* `CompanyDocument` (not the indexed copy) before it becomes a citation — closing file `04`'s "recheck permissions when resolving citations" requirement. `DOC-HR-001` re-verified to never leak across all three modes.
+- **Index lifecycle (EVAL-011), fully exercised for the first time:** added a synthetic temp record, synced (1 upserted, 20 unchanged — confirms the content-hash manifest skips re-embedding untouched documents), verified it was retrievable, removed it, re-synced (1 deleted), verified it was gone. Also verified the full-rebuild fallback. EVAL-011 flipped from "Not tested" to "Pass" in `EVALUATION_REPORT.md`.
+- **Reproducibility fix:** the retrieval-mode comparison pins the corpus to the local GitHub export (bypassing the Phase 4 live connector) so results don't change depending on whether the live API happens to be reachable when the comparison is re-run.
+- **Deliberately not built:** wiring mode selection into Streamlit/FastAPI (`app.py`/`api.py` still only call `answer_with_baseline` — that's Phase 7); scheduled/background re-sync (currently syncs on every `answer_with_semantic`/`answer_with_hybrid` call, cheap here since unchanged documents are skipped by hash).
+- New module `indexing.py` (chunking, manifest, `SemanticIndex` sync/rebuild); `retrieval.py` gained `semantic_search`/`hybrid_search` (`lexical_search` untouched); `service.py` gained `answer_with_semantic`/`answer_with_hybrid` (`answer_with_baseline` untouched, same behavior as before). `data/index/` (already gitignored by the template) now holds the real Chroma persistent store + manifest.
+
 ## Files Changed So Far
 
-Committed history: `358b33b` (initial) → `5eaad98` (Phase 2 day-1 status) → `73bd6df` (commit-hash note) → `950a15b` (Phase 3 evaluation evidence) → `63eae91` (live GitHub repo recorded as committed config).
+Committed history: `358b33b` (initial) → `5eaad98` (Phase 2 day-1 status) → `73bd6df` (commit-hash note) → `950a15b` (Phase 3 evaluation evidence) → `63eae91` (live GitHub repo recorded as committed config) → `129e43f` (Phase 4 live GitHub connector).
 
-Uncommitted as of this session (Phase 4 connector implementation — awaiting review):
+Uncommitted as of this session (Phase 5 managed RAG implementation — awaiting review):
 
 ```
-M PROGRESS_LOG.md                              (this file)
-M deliverables/EVALUATION_REPORT.md            (Phase 4 live-connector evidence section added)
-M pyproject.toml, uv.lock                      (added httpx as a direct dependency)
-M src/company_assistant/connectors/github.py   (live fetch + pagination + error handling + role mapping, alongside the unchanged local loader)
-M src/company_assistant/connectors/registry.py (load_all_documents now also returns connector state notes)
-M src/company_assistant/service.py             (surfaces those notes into Answer.trace)
+M PROGRESS_LOG.md                            (this file)
+M deliverables/EVALUATION_REPORT.md          (Phase 5 semantic/hybrid evidence section added, Retrieval Comparison filled in, EVAL-011 flipped to Pass)
+M src/company_assistant/retrieval.py         (added semantic_search, hybrid_search; lexical_search untouched)
+M src/company_assistant/service.py           (added answer_with_semantic, answer_with_hybrid; answer_with_baseline untouched)
+?? src/company_assistant/indexing.py         (new: chunking strategies, manifest, SemanticIndex sync/rebuild)
 ```
 
-`.env` (untracked, gitignored) sets `GITHUB_REPOSITORY=AlexDeWilde/ai-agent-project-test-repo`; not required for the app to work, since that value is also the committed code default in `connectors/github.py`.
+`pyproject.toml`/`uv.lock` unchanged this phase — `chromadb`, `langchain-huggingface`, `sentence-transformers` were already pinned dependencies from the start. `data/index/` (already gitignored by the template) now holds the real Chroma persistent store + manifest locally; not shown in `git status`.
 
 ## Open Items / Not Yet Decided
 
-- Whether the numeric success-measure placeholders in `PRODUCT_BRIEF.md` (8s latency, 3/3 + 10/12 pass-rate targets) should be revisited now that real baseline latency exists (~2.9ms in-process lexical baseline, plus one live GitHub API round-trip now added to every call) — likely not a useful proxy for future model-backed latency, but worth a quick look.
-- Whether to add a minimum relevance floor to `lexical_search` so the baseline can abstain (EVAL-005, EVAL-007 currently return off-topic evidence instead of "insufficient evidence") — flagged in `EVALUATION_REPORT.md` Residual Risks, no decision made.
-- Citation re-checking at resolution time (the `open_source` tool) is designed on paper in `ACCESS_MATRIX.md` but not implemented — planned for Phase 6.
-- No caching/rate-limit budget tracking on the live GitHub call yet — every `answer_with_baseline` call now makes a live request (60/hour unauthenticated limit for this public repo). Fine at current usage; worth revisiting if Phase 5-8 testing calls it frequently.
+- Whether the numeric success-measure placeholders in `PRODUCT_BRIEF.md` (8s latency, 3/3 + 10/12 pass-rate targets) should be revisited now that real baseline latency exists (~0.1ms in-process lexical baseline, plus one live GitHub API round-trip now added to every `answer_with_baseline` call) — likely not a useful proxy for future model-backed latency, but worth a quick look.
+- Whether to add a minimum relevance floor to `lexical_search`/`semantic_search` so the baseline can abstain (EVAL-005, EVAL-007 currently return off-topic evidence instead of "insufficient evidence") — flagged in `EVALUATION_REPORT.md` Residual Risks, no decision made.
+- Citation re-checking at resolution time (the `open_source` tool) is designed on paper in `ACCESS_MATRIX.md` and now implemented for semantic/hybrid (`retrieval.py`) — still needs the equivalent for whatever Phase 6's tool layer does with lexical/DB lookups.
+- No caching/rate-limit budget tracking on the live GitHub call yet — every `answer_with_baseline`/`answer_with_semantic`/`answer_with_hybrid` call makes a live request (60/hour unauthenticated limit for this public repo). Fine at current usage; worth revisiting if Phase 6-8 testing calls it frequently.
+- Lexical-over-semantic is a corpus-specific finding (15 small, ID-heavy documents) — flagged in Residual Risks as something Phase 8 should re-check, not assume, if the corpus grows.
 
 ## Next Immediate Step
 
-Phase 4 evidence is captured; awaiting human review/acceptance before starting Phase 5 (managed RAG: Chroma + local embeddings, compared against the lexical baseline) — see `AGENTS.md` collaboration workflow step 8.
+Phase 5 evidence is captured; awaiting human review/acceptance before starting Phase 6 (LangChain tools + one agent, Groq-backed, with human approval for one action) — see `AGENTS.md` collaboration workflow step 8.
