@@ -32,7 +32,7 @@ Flagged risk: Phases 8–10 (comparative evaluation, Docker packaging, release d
 | 1 — Product Brief | **Done** | `deliverables/PRODUCT_BRIEF.md` complete. Merged two independently-drafted versions (mine + a parallel `PRODUCT_BRIEF_adw01.md` from another agent/tool run, since deleted by the user). |
 | 2 — Access Matrix | **Done** | `deliverables/ACCESS_MATRIX.md` complete, grounded in actual fixture `allowed_roles`/`confidentiality` values (not guessed). Two judgment calls approved by the user (see Decisions below). |
 | 3 — Deterministic baseline | **Done** | `deliverables/EVALUATION_REPORT.md` filled in for the lexical baseline: all 12 eval cases run through `answer_with_baseline`, plus a direct DB role-gating spot check. No model/network call. See summary below. |
-| 4 — Live GitHub connector | Prep done, connector not started | Live repo chosen and seeded (see below); connector code itself not written yet. |
+| 4 — Live GitHub connector | **Done** | `connectors/github.py` fetches live issues with pagination/error handling, falls back to the local Atlas fixture, and discloses which in `Answer.trace`. All 3 pieces of completion evidence captured with real calls. See summary below. |
 | 5 — Managed RAG (Chroma, hybrid) | Not started | |
 | 6 — Tools + agent | Not started | Database-layer role checks (see below) are already done ahead of this phase; still need LangChain tool wrappers + the agent itself. |
 | 7 — Full product experience | Not started | |
@@ -68,37 +68,41 @@ Full detail in `deliverables/EVALUATION_REPORT.md`. Headline results:
 - **Live repository:** `AlexDeWilde/ai-agent-project-test-repo` — new, public, created specifically for this project. `.env` (untracked) sets `GITHUB_REPOSITORY=AlexDeWilde/ai-agent-project-test-repo` and leaves `GITHUB_TOKEN` blank since the repo is public and needs no auth for read-only issue access.
 - **Seeded 8 issues** (6 open / 2 closed, one contributor assigned to two of them) with GitHub's default labels (`bug`, `enhancement`, `documentation`, `question`, `help wanted`) plus two new custom labels created for this project: `finance-review` and `customer-impact`.
 - **Label → role mapping decision:** this repo's issues are genuine software-engineering content about the connector itself (not the fictional Atlas story), so there's no natural label taxonomy mapping to Northstar's four roles. Default policy: every live issue is `engineering`-visible; the two custom labels are an explicit, documented exception used only to exercise the same per-issue role-scoping mechanism the local fixture uses (`GH-131` → `customer_success`, `GH-142` → `finance`) — `finance-review` (issues #6, #7) also grants `finance`, `customer-impact` (issue #8) also grants `customer_success`. This mirrors `ACCESS_MATRIX.md`'s existing "Live GitHub work items" row and should be written into that file when the connector is built.
-- **Not yet built:** the actual live-fetch code (`connectors/github.py` still only reads the local export), pagination/error handling, the live-vs-fallback trigger and disclosure, and updating `ACCESS_MATRIX.md`/`.env.example` to reflect the above.
+## Phase 4 Summary (2026-09-02)
+
+Full detail in `deliverables/EVALUATION_REPORT.md`. Headline results:
+
+- **All 3 required pieces of completion evidence captured with real calls, not just mocks:** a genuine live issue cited over `/ask` (Omar/finance asking about billing-review issues correctly got back the two real `finance-review`-labeled issues, with the real GitHub issue URL as the citation target); a real 404 against a nonexistent repo, caught and gracefully degraded to the local Atlas fixture; and `Answer.trace` now always states whether live or fallback was used — closing the exact disclosure gap Phase 3 flagged for EVAL-012.
+- **Design resolution on EVAL-012:** the live repo (real, freshly created) can never contain the fictional fixture's issue numbers (`GH-142`/`GH-149`), so that fixed evaluation case is satisfied via the fallback path by design; the live path is evidenced separately since forcing a real repo to replicate fictional issue numbers isn't practical. Recorded in `DECISIONS.md`.
+- **Role-mapping policy applied and verified on real data:** `finance-review`/`customer-impact` labels add scoped visibility on top of the engineering default; DOC-HR-001 re-verified to still never leak across all 4 profiles with the live source now in the mix (regression check).
+- **Deliberately not built:** retry/backoff on a failed live call (single attempt → immediate fallback, matching file `04`'s "keep the architecture small" instruction) and a live-repo-specific local snapshot (the existing Atlas fixture is reused as the fallback payload by design).
+- **Verification approach:** a deterministic, network-free suite (`httpx.MockTransport`) covering label→role mapping, pagination via the `Link` header, and 403/404/network-error handling, plus 3 real network calls for the actual completion evidence — no formal test framework introduced, matching how Phase 2/3 evidence was gathered.
+- Added `httpx` as a direct dependency; `load_all_documents()` and `answer_with_baseline` signatures changed to surface connector state notes into `Answer.trace` (only caller was `service.py`, so low blast radius).
 
 ## Files Changed So Far
 
-Committed on `main` at `5eaad98` ("update to day1 status"):
+Committed history: `358b33b` (initial) → `5eaad98` (Phase 2 day-1 status) → `73bd6df` (commit-hash note) → `950a15b` (Phase 3 evaluation evidence) → `63eae91` (live GitHub repo recorded as committed config).
+
+Uncommitted as of this session (Phase 4 connector implementation — awaiting review):
 
 ```
-M data/database/company.db          (regenerated teaching fixture, expected)
-M deliverables/ACCESS_MATRIX.md
-M deliverables/DECISIONS.md
-M deliverables/PRODUCT_BRIEF.md
-M src/company_assistant/database.py
+M PROGRESS_LOG.md                              (this file)
+M deliverables/EVALUATION_REPORT.md            (Phase 4 live-connector evidence section added)
+M pyproject.toml, uv.lock                      (added httpx as a direct dependency)
+M src/company_assistant/connectors/github.py   (live fetch + pagination + error handling + role mapping, alongside the unchanged local loader)
+M src/company_assistant/connectors/registry.py (load_all_documents now also returns connector state notes)
+M src/company_assistant/service.py             (surfaces those notes into Answer.trace)
 ```
 
-Uncommitted as of this session (Phase 3, not yet committed — awaiting review):
-
-```
-M data/database/company.db          (regenerated via `python -m company_assistant.database`, no schema/data change)
-M deliverables/EVALUATION_REPORT.md (Retrieval Comparison + Scenario Results filled in for the lexical baseline; other sections still template/blank where the underlying capability doesn't exist yet)
-M PROGRESS_LOG.md                   (this file)
-```
-
-No source code changed in Phase 3 — evidence-gathering only, against the existing Phase 2 codebase.
+`.env` (untracked, gitignored) sets `GITHUB_REPOSITORY=AlexDeWilde/ai-agent-project-test-repo`; not required for the app to work, since that value is also the committed code default in `connectors/github.py`.
 
 ## Open Items / Not Yet Decided
 
-- Whether the numeric success-measure placeholders in `PRODUCT_BRIEF.md` (8s latency, 3/3 + 10/12 pass-rate targets) should be revisited now that Phase 3's real baseline latency exists (~2.9ms in-process for the lexical baseline — likely not a useful proxy for future model-backed latency, but worth a quick look).
+- Whether the numeric success-measure placeholders in `PRODUCT_BRIEF.md` (8s latency, 3/3 + 10/12 pass-rate targets) should be revisited now that real baseline latency exists (~2.9ms in-process lexical baseline, plus one live GitHub API round-trip now added to every call) — likely not a useful proxy for future model-backed latency, but worth a quick look.
 - Whether to add a minimum relevance floor to `lexical_search` so the baseline can abstain (EVAL-005, EVAL-007 currently return off-topic evidence instead of "insufficient evidence") — flagged in `EVALUATION_REPORT.md` Residual Risks, no decision made.
 - Citation re-checking at resolution time (the `open_source` tool) is designed on paper in `ACCESS_MATRIX.md` but not implemented — planned for Phase 6.
-- Live-GitHub-issue `allowed_roles` assignment policy (e.g., by label) is specified as a requirement in `ACCESS_MATRIX.md` but not yet built — Phase 4.
+- No caching/rate-limit budget tracking on the live GitHub call yet — every `answer_with_baseline` call now makes a live request (60/hour unauthenticated limit for this public repo). Fine at current usage; worth revisiting if Phase 5-8 testing calls it frequently.
 
 ## Next Immediate Step
 
-Phase 3 evidence is captured; awaiting human review/acceptance before starting Phase 4 (live GitHub connector, read-only, with local fallback — see `AGENTS.md` collaboration workflow step 8).
+Phase 4 evidence is captured; awaiting human review/acceptance before starting Phase 5 (managed RAG: Chroma + local embeddings, compared against the lexical baseline) — see `AGENTS.md` collaboration workflow step 8.

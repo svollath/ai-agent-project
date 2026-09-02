@@ -6,8 +6,8 @@
 - **Version or commit:** Phase 3 baseline run on top of commit `73bd6df` (working tree otherwise clean at run time).
 - **Model and configuration:** None. `answer_with_baseline` is a purely extractive, deterministic function — no LLM call.
 - **Embedding model:** Not applicable yet (semantic retrieval is Phase 5, not started).
-- **Live GitHub source or local fallback:** Local fallback only (`data/raw/github/issues.json`). The live connector is Phase 4, not started.
-- **Evaluation date:** 2026-09-02
+- **Live GitHub source or local fallback:** Both — live source `AlexDeWilde/ai-agent-project-test-repo` with automatic fallback to `data/raw/github/issues.json`. See Phase 4 evidence below.
+- **Evaluation date:** 2026-09-02 (Phase 3 baseline); 2026-09-02 (Phase 4 live connector added)
 
 ## Thresholds Set Before Final Evaluation
 
@@ -53,6 +53,22 @@ Use `Pass`, `Partial`, or `Fail`. Do not omit a supplied case because it is diff
 | EVAL-011 | Not tested | Not tested | N/A (Phase 6) | Not tested | Not tested | Fixture has no static expected sources by design — requires the `setup_hint` procedure (add a temp record, sync, verify, delete, re-sync) against a live index, which doesn't exist until Phase 5. Not exercised. |
 | EVAL-012 | Pass | Pass | N/A (Phase 6) | Partial | Fail | `GH-142`/`GH-149` retrieved via the local fallback (the only source that exists pre-Phase 4). The trace never states whether a live source or the fallback was used — "disclose the fallback state" isn't implemented. Not yet tested with the live connector unavailable, since it isn't built. |
 
+### Phase 4: Live GitHub connector evidence (2026-09-02)
+
+Live source: `AlexDeWilde/ai-agent-project-test-repo` (public, 8 seeded issues; see `deliverables/DECISIONS.md`). All three pieces of completion evidence required by file `04` were captured with real calls, plus a deterministic mock-based suite (`httpx.MockTransport`, no network) covering label→role mapping, pagination via the `Link` header, and 403/404/network-error handling — all passed.
+
+| Evidence | Result |
+| --- | --- |
+| Cite one live issue | Omar (finance) asking "Which GitHub issues need finance review for billing?" over the live FastAPI `/ask` endpoint got back real citations `GH-AlexDeWilde/ai-agent-project-test-repo-6` and `-7` (the two `finance-review`-labeled issues), each with the real GitHub issue URL as `source_path` — not the local export. |
+| Same connector works with the local fallback | Leo/Maya/Omar's baseline questions continue to retrieve the fictional Atlas issues (`GH-142`, `GH-149`) from `data/raw/github/issues.json` whenever live is unavailable — same `CompanyDocument` contract either way. |
+| Failed API call produces a controlled state, not fabricated evidence | Real call against a nonexistent repo (`AlexDeWilde/this-repo-does-not-exist-12345`) returned a real 404, caught as `LiveFetchError`, and fell back to the 3 local Atlas issues (`GH-131`, `GH-142`, `GH-149`) with the failure disclosed in `Answer.trace`: `"GitHub: live fetch from ... failed (GitHub API returned 404 ...); used local fallback (data/raw/github)"`. |
+| Live-vs-fallback state disclosed | `Answer.trace` now always includes a `GitHub: used live source ...` or `GitHub: live fetch ... failed ...; used local fallback` line — closes the EVAL-012 gap noted in the Phase 3 run above, where the trace never said which state was active. |
+| Role-mapping policy holds on real data | Leo (engineering) sees all 8 live issues (including `finance-review`-labeled ones, since that label only *adds* finance visibility, never removes engineering's); Omar (finance) sees only the 2 `finance-review` issues; DOC-HR-001 re-verified to never leak with the live source in the mix (regression check across all four employee profiles). |
+
+Regenerating `EVAL-012` against this live source (rather than the fixed local fixture) is not meaningful — a fresh public repo can't retroactively contain issue numbers `142`/`149` — so that scenario's fixed `expected_source_ids` are satisfied via the fallback path, and the live path is evidenced here instead. See `deliverables/DECISIONS.md` for the full reasoning.
+
+**Not built:** retry/backoff on a failed live call (single attempt, immediate fallback — kept intentionally small per file `04`'s "keep the architecture small" guidance); a real local snapshot specific to the live repo (the existing Atlas fixture is reused as the fallback payload by design, not a snapshot of the live repo's actual content).
+
 ### Database role-gating spot check (function-level, no model)
 
 Re-verified the Phase 2 access-control work that the baseline service doesn't yet call:
@@ -70,7 +86,7 @@ Deny-by-default holds in both directions: engineering/customer_success/finance n
 
 ## Product and Operational Evidence
 
-- **Live GitHub connector and fallback:** Not built yet (Phase 4). Local fallback (`data/raw/github/issues.json` via `load_github_issues`) confirmed reachable and returns `GH-142`/`GH-149` correctly for Leo.
+- **Live GitHub connector and fallback:** Built (Phase 4). Live source `AlexDeWilde/ai-agent-project-test-repo` confirmed reachable with real citations over `/ask`; local fallback (`data/raw/github/issues.json`) confirmed via a real 404 against a nonexistent repo. See the Phase 4 evidence table above.
 - **Interface startup (Streamlit + FastAPI):** Both booted cleanly against the regenerated database (`uv run python -m company_assistant.database`, then `uv run uvicorn company_assistant.api:app` and `uv run streamlit run app.py --server.headless true`). `GET /health` returned 200; `POST /ask` returned identical, correctly role-filtered answers to the direct function calls, confirming the two interfaces share the same deterministic service layer (`answer_with_baseline`) rather than duplicating logic, per `AGENTS.md`.
 - **Changed record reflected in the index:** Not applicable — no index exists yet (Phase 5).
 - **Deleted record removed from the index:** Not applicable — same as above.
@@ -82,7 +98,7 @@ Deny-by-default holds in both directions: engineering/customer_success/finance n
 
 ## Failure Analysis
 
-- **Connector and freshness failures:** None observed in the local connectors (slack/email/document/github all loaded and validated without error). Live GitHub freshness/failure behavior is not testable yet (Phase 4).
+- **Connector and freshness failures:** None observed in the local connectors (slack/email/document/github all loaded and validated without error). Live GitHub failure behavior verified with a real 404 (see Phase 4 evidence above) — falls back correctly. Freshness (polling for updated/closed issues over time) not yet exercised, since only single point-in-time fetches have been run.
 - **Retrieval failures:** The lexical baseline has no minimum-relevance floor (`score > 0` accepts any token overlap), so it never abstains — EVAL-007 and EVAL-005 both returned `evidence_found` with off-topic citations instead of a "no evidence" result. It also cannot query the structured database (EVAL-004), and cannot rank current vs. obsolete documents (EVAL-001) or reconcile conflicting dates (EVAL-003).
 - **Permission failures:** None. `DOC-HR-001` was withheld from `customer_success`/`engineering`/`finance` in every case, including the direct forbidden-access case (EVAL-005) and the indirect-injection case (EVAL-006) where the retrieved content itself instructed the system to fetch it. Verified at the function level and over the live FastAPI `/ask` endpoint.
 - **Tool-routing failures:** Not applicable yet — no agent or tool router exists (Phase 6).
@@ -108,4 +124,4 @@ Choose one and explain the evidence:
 
 **Decision:** Do not demonstrate yet.
 
-**Rationale:** Only Phases 1-3 are complete (product brief, access matrix, deterministic baseline). There is no language model, semantic retrieval, live connector, agent/tool layer, or action-approval flow yet, so the product cannot answer the priority questions in `PRODUCT_BRIEF.md` beyond raw excerpt dumps, and 5 of 12 evaluation cases (EVAL-004, 008, 009, 010, 011) exercise capabilities that don't exist yet. The one result that matters most at this stage — permission enforcement — is solid and verified end-to-end (function-level and over FastAPI, including under an embedded prompt-injection attempt), which de-risks the phases ahead.
+**Rationale:** Phases 1-4 are complete (product brief, access matrix, deterministic baseline, live GitHub connector). There is still no language model, semantic retrieval, agent/tool layer, or action-approval flow, so the product cannot answer the priority questions in `PRODUCT_BRIEF.md` beyond raw excerpt dumps, and 5 of 12 evaluation cases (EVAL-004, 008, 009, 010, 011) exercise capabilities that don't exist yet. The two results that matter most at this stage — permission enforcement and the live-connector fallback contract — are solid and verified end-to-end with real calls (function-level and over FastAPI, including under an embedded prompt-injection attempt and a genuine 404 against a nonexistent repo), which de-risks the phases ahead.

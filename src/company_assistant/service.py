@@ -26,13 +26,18 @@ def answer_with_baseline(
     tool-using agent. Keeping it runnable provides a comparison point.
     """
 
-    documents = load_all_documents(data_root)
+    documents, source_notes = load_all_documents(data_root)
     results = lexical_search(question, documents, employee)
     if not results:
         return Answer(
             status="insufficient_evidence",
             text="I could not find permitted evidence for this question.",
-            trace=["Loaded local exports", "Applied role filter", "Ran lexical search"],
+            trace=[
+                "Loaded local exports",
+                *source_notes,
+                "Applied role filter",
+                "Ran lexical search",
+            ],
         )
 
     evidence_lines = [
@@ -55,6 +60,7 @@ def answer_with_baseline(
         citations=citations,
         trace=[
             "Loaded local exports",
+            *source_notes,
             f"Applied role filter for {employee.role}",
             f"Returned {len(results)} lexical results",
             "No language model or agent was used",
