@@ -1,0 +1,43 @@
+# Two services from one image (see Dockerfile) — kept separate rather than
+# one multi-process container so each interface has its own port, restart,
+# and log stream. `api` performs the one-time index sync on startup; `ui`
+# waits for `api` to report healthy before starting, so a completely fresh
+# `index_data` volume is never written to by both processes at once.
+
+services:
+  api:
+    build: .
+    image: northstar-assistant:latest
+    env_file: .env
+    command: >
+      sh -c "uv run python -c 'from company_assistant.indexing import sync_index; sync_index()' &&
+             uv run uvicorn company_assistant.api:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - index_data:/app/data/index
+      - feedback_data:/app/data/feedback
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  ui:
+    build: .
+    image: northstar-assistant:latest
+    env_file: .env
+    command: uv run streamlit run app.py --server.address 0.0.0.0 --server.port 8501
+    ports:
+      - "8501:8501"
+    volumes:
+      - index_data:/app/data/index
+      - feedback_data:/app/data/feedback
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  index_data:
+  feedback_data:

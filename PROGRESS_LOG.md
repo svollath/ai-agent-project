@@ -48,7 +48,7 @@ follow-up.
 | 6 — Tools + agent | **Done, pending human review** | Tool layer (`src/company_assistant/tools/`): `search_company_knowledge`, `search_work_items` (fixes Phase 5's GitHub top-*k* gap), `get_support_case`, `list_project_status`, `open_source`, `propose_action`, all verified with normal/denied/empty/failure inputs; identity injected via closure (verified via schema inspection — no tool exposes `employee`); full approve/reject/edit/execute lifecycle with no tool wrapper on any of the four (agent structurally cannot call them). Agent runtime (`src/company_assistant/agent/`): one bounded `create_agent` + `ChatGroq` (`openai/gpt-oss-20b`), `ToolStrategy`-based structured output (`AgentAnswer`), citations verified against actual tool results before becoming real `Citation`s (never trust the model's self-report). Tested with ~20 **live Groq calls** across 8 EVAL cases — see `EVALUATION_REPORT.md`'s Phase 6 sections and 5 new `DECISIONS.md` entries for full evidence. **Two real bugs found and fixed via live testing:** (1) `ActionProposal.payload` was too narrow (no array values — Groq rejected a natural `labels: [...]` field, widened the type); (2) the agent burned its whole tool-call budget rephrasing an unanswerable query instead of abstaining, and separately conflated "sounds financial" with "forbidden" — both fixed (a tool-call-count cap on `search_company_knowledge` specifically, plus a clearer forbidden-vs-insufficient-evidence prompt section), verified 3/3 clean afterward. **New reliability finding (not a bug in this code):** `openai/gpt-oss-20b` on Groq intermittently fails to produce a valid structured tool call (malformed JSON, a "functions."-prefixed name, or plain text instead of a tool call) — always safely caught as `status="error"`, never a crash or fabrication; recommend `ModelRetryMiddleware` in Phase 7/8. Also hit Groq's free-tier rate limit (8000 TPM) after ~20 calls in quick succession — pace future live-evaluation batches. Security properties (no HR leak, injection resistance, no self-approval, no execution without approval) held across every live run. |
 | 7 — Full product experience | **Done, pending human review** | `app.py`/`api.py` now call `agent.answer_with_agent()` instead of the Phase 3 lexical-only baseline. Streamlit gained: identity-switch history clearing (a self-identified gap in the starter, see below), a system-status sidebar (index freshness, GitHub state, manual "Resync index" button), a "Pending actions" panel with Approve/Reject/Edit buttons calling `tools.actions` directly (never through the agent), status-colored answer banners, conditional clickable citations, a renamed "Tool trace" expander, and a Useful/Not-useful (+ reason) feedback control persisting to a new `feedback.py` module (JSONL under `data/feedback/`). FastAPI gained `/status`, `/feedback`, and `/actions/{id}/approve\|reject\|edit`, plus an agent-backed `/ask`. Verified live in a real browser (no project run skill existed, so a one-off Playwright driver script was used) and via `fastapi.testclient.TestClient` for the API — see `EVALUATION_REPORT.md`'s new Phase 7 section and 5 new `DECISIONS.md` entries. **Two real findings from live testing:** (1) the Phase 0 starter never cleared chat history on identity switch — a real cross-identity evidence-leak vector, fixed; (2) `ModelRetryMiddleware`'s default `retry_on` was retrying Groq's daily-token-quota (TPD) 429s, which can never succeed within a few backed-off seconds — narrowed to exclude `ModelRateLimitError` specifically. Groq's 200k-token daily quota was hit (~99.5% used) partway through live testing; every failure degraded safely to `status="error"`, never a crash or fabrication, confirming the safety design holds under a real production-like failure. |
 | 8 — Comparative evaluation | **Done, pending human review** | New `src/company_assistant/evaluation/run.py` harness ran all 12 cases through the lexical baseline, the shipped lexical+agent default (only the 4 cases Phase 6 hadn't already covered live), and semantic+agent/hybrid+agent (all 12 each) — 44 live result rows, `data/generated/evaluation_results.json`. **Release-blocking metric: 0 forbidden-source leaks across all 44 rows.** Verdicts hand-corrected after reviewing actual stored text/citations/traces (13 corrections vs. the harness's automatic first pass — written back into the JSON so the report and the new `pages/evaluation.py` dashboard never disagree): 25 Pass / 7 Partial / 8 Fail / 4 N/A (structural baseline limitations). **Two operational findings, same session:** (1) a "new" Groq API key issued within the *same organization* as an already-exhausted one does not reset the daily quota — confirmed the hard way; only a genuinely different-org key worked. (2) New product weakness: EVAL-011/012's agent variants repeatedly hit the global 10-tool-call ceiling without answering — one clear cause (a wrong-tool retry loop on `search_work_items`, unguarded by the per-tool retry cap that only covers `search_company_knowledge`), one still-unexplained sub-pattern (stopping after 0–1 tool calls with the same message). Documented as-is per the user's explicit choice, not fixed this phase. `EVALUATION_REPORT.md`'s `Scenario Results`, `Product and Operational Evidence`, `Failure Analysis`, and `Residual Risks` are now filled in (`Release Recommendation` deliberately left for Phase 10). New `pages/evaluation.py` (Streamlit multipage dashboard) verified live in a real browser, zero exceptions. 3 real feedback entries seeded via live UI clicks (2 useful, 1 not-useful+reason), per the user's explicit choice over synthetic data. |
-| 9 — Docker packaging | Not started | |
+| 9 — Docker packaging | **Done, pending human review** | One `Dockerfile` shared by two `docker-compose` services (`api` on 8000, `ui` on 8501) — not a multi-process container, so each interface keeps its own restart/log/port and `api` alone owns the one-time startup index sync (gated by a `healthcheck`, so `ui` never races it on a fresh volume). Two named volumes (`index_data`, `feedback_data`) make the persistent locations explicit; `data/database/company.db` and `data/raw/` ship baked into the image (reproducible fixtures). Verified live: fresh-volume `docker compose up --build` → `api` healthy only after real sync (`/status` → 23 indexed sources); containerized Streamlit answered a real question with citations (real browser check, 0 exceptions); restart (`down`/`up`, no `-v`) preserved both the index and a recorded feedback entry; local GitHub fallback confirmed inside the container with `GITHUB_REPOSITORY`/`GITHUB_TOKEN` blanked; confirmed no `.env`/secret reaches the built image. **One real finding, fixed with approval:** default resolution pulled torch's CUDA build (via `sentence-transformers`) transitively, producing an 18.7GB image full of unused GPU libraries — pinned `torch` to the CPU-only wheel index on Linux (`pyproject.toml`/`uv.lock`), shrinking the image to 4.78GB with no behavior change (local macOS dev re-verified working). `README.md` gained a "Run with Docker" step. |
 | 10 — Decide and demonstrate | Not started | |
 
 ## Key Decisions Made Today
@@ -145,6 +145,20 @@ M deliverables/DECISIONS.md                       (5 new decisions: 3-variant co
 `data/generated/evaluation_results.json` and `data/feedback/feedback.jsonl`
 are both git-ignored (generated/local state), not part of this list.
 
+Not yet committed (this session, Phase 9 — Docker packaging, still on
+`sv-claude-session-DNM`):
+
+```
+A Dockerfile                  (single shared image; uv sync in two layers for caching)
+A .dockerignore                (mirrors .gitignore's local/generated state + .git/.venv)
+A docker-compose.yml           (api + ui services from one image; named volumes; healthcheck-gated startup order)
+M pyproject.toml               (torch promoted to a direct dependency + [tool.uv.sources] pin to the CPU-only wheel index on Linux)
+M uv.lock                      (regenerated: torch==2.14.0+cpu on Linux, no nvidia-*/cuda-* deps; incidental compatible-version bumps elsewhere)
+M README.md                    (new "Run with Docker" step)
+M deliverables/EVALUATION_REPORT.md  (Container startup evidence bullet filled in)
+M deliverables/DECISIONS.md    (2 new decisions: compose-services-not-multiprocess, CPU-only torch pin)
+```
+
 ## Planned Post-Phase-8 Work: Packaging Experiment (Phases 9/10)
 
 Discussed and agreed with the user ahead of time so it isn't lost; **do not start
@@ -197,25 +211,30 @@ manifests (Deployment, Service) plus a Traefik `IngressRoute` for
 
 ## Next Immediate Step
 
-Phase 8 (comparative evaluation) is fully captured in
-`deliverables/EVALUATION_REPORT.md` — Thresholds, a new Phase 8 section, and
-`Scenario Results`/`Product and Operational Evidence`/`Failure
-Analysis`/`Residual Risks` are all filled in (`Release Recommendation`
-deliberately left for Phase 10, per `05-evaluation-and-release.md`) — plus 5
-new `DECISIONS.md` entries. Per `AGENTS.md`'s collaboration workflow, this
-needs human review/acceptance before Phase 9 starts.
+Phase 9 (Docker packaging) is fully captured in
+`deliverables/EVALUATION_REPORT.md`'s updated "Container startup evidence"
+bullet and 2 new `DECISIONS.md` entries. Per `AGENTS.md`'s collaboration
+workflow, this needs human review/acceptance before Phase 10 starts.
 
-Once accepted: **Phase 9 — Docker packaging** per the course's numbered
-files. Note the user's separate, larger packaging plan (NiceGUI + k3s/Traefik,
-`DECISIONS.md`'s "Defer a NiceGUI + k3s/Traefik packaging experiment"
-entry) — confirm with the user whether Phase 9 proceeds as the course's
-plain single-container ask first, or whether to go straight to the larger
-experiment.
+Once accepted: **Phase 10 — Decide and Demonstrate** per
+`05-evaluation-and-release.md`. Complete `deliverables/SHOWCASE.md`, and the
+final decision entry in `deliverables/DECISIONS.md` (the `Release
+Recommendation` section of `EVALUATION_REPORT.md` was deliberately left
+blank through Phase 8 for exactly this). After Phase 10, the user's deferred
+NiceGUI + k3s/Traefik packaging experiment (`DECISIONS.md`'s "Defer a
+NiceGUI + k3s/Traefik packaging experiment" entry) is next, per the user's
+own confirmed sequencing.
 
-**Housekeeping for whoever resumes this session:** the branch is
-`phase3-4-baseline-live-github` (yes, named after Phases 3–4, now also carrying
-5 and 6 — consider renaming or just merging soon to avoid confusion). Run
-`uv run python -m company_assistant.database` if `data/database/company.db` looks
-stale, and `python -c "from pathlib import Path; from company_assistant.indexing import sync_index; print(sync_index(Path('data/raw')))"`
-to rebuild the semantic index if `data/index/` was cleaned or is missing (it's
-git-ignored, so a fresh checkout starts with none).
+**Housekeeping for whoever resumes this session:** the branch is now
+`sv-claude-session-DNM` (renamed from `phase3-4-baseline-live-github` after
+Phase 8's acceptance — the historical branch name in earlier log entries
+above is correct for the point in time it describes). The Docker compose
+stack from this session's Phase 9 verification is still running locally
+(`docker compose ps` from the repo root); stop it with `docker compose down`
+(add `-v` only to also reset the `index_data`/`feedback_data` volumes).
+Outside Docker: run `uv run python -m company_assistant.database` if
+`data/database/company.db` looks stale, and `python -c "from pathlib import
+Path; from company_assistant.indexing import sync_index;
+print(sync_index(Path('data/raw')))"` to rebuild the semantic index if
+`data/index/` was cleaned or is missing (it's git-ignored, so a fresh
+checkout starts with none).

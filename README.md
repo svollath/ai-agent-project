@@ -208,6 +208,26 @@ cp .env.example .env
 
 Add your Groq API key and, when needed, the GitHub repository settings described in file `04`. Never commit `.env` or expose credentials in prompts, screenshots, traces, or evaluation reports.
 
+### 9. Run with Docker (optional)
+
+The packaged product runs from the same `.env` you created in step 8 — no
+separate Docker-specific configuration.
+
+```bash
+docker compose up --build
+```
+
+This builds one shared image and starts two services: `api`
+(`http://localhost:8000`, docs at `/docs`) and `ui`
+(`http://localhost:8501`). `api` syncs the semantic index on first startup
+before serving — a completely fresh checkout reaches both interfaces with no
+manual index-build step. The index (`data/index/`) and recorded feedback
+(`data/feedback/feedback.jsonl`) persist in named Docker volumes
+(`index_data`, `feedback_data`) across `docker compose down`/`up` — use `down
+-v` only if you want to reset them. Leaving `GITHUB_REPOSITORY`/
+`GITHUB_TOKEN` unset in `.env` preserves the same local-only GitHub fallback
+as running outside Docker.
+
 ## Coding Agent Collaboration
 
 Use Claude Code or Codex through any interface that can access the repository. At the beginning of each project phase, give it the phase objective and ask it to inspect the relevant files before proposing a plan. Let it perform most implementation work, but review its plan, changes, assumptions, and evidence before accepting the result and moving forward.

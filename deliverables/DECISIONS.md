@@ -245,3 +245,25 @@ Record meaningful product and architecture decisions, not every small edit.
 - **Decision and owner:** Option 2 — decided by the coding agent; a data-consistency choice, not a product tradeoff needing user input.
 - **Consequences or follow-up:** `evaluation_results.json` now carries `hand_reviewed: true` and a `hand_review_note` field pointing back to the report's reasoning, so a future reader of the raw JSON isn't misled into thinking it's the harness's untouched first pass.
 - **Status:** Accepted
+
+### Decision: Package as two `docker-compose` services from one image, not one multi-process container
+
+- **Phase:** 9 — Package the product
+- **Context:** `05-evaluation-and-release.md`'s Phase 9 asks to expose both the Streamlit and FastAPI ports and "keep the packaging modest." The app has always run as two separate processes (`uv run streamlit run app.py`, `uv run uvicorn company_assistant.api:app`); Docker packaging needed to decide how those two processes map onto container(s).
+- **Options considered:** (1) one container running both processes (e.g. a shell script backgrounding one and foregrounding the other, or a process supervisor like `supervisord`); (2) one shared `Dockerfile`, two `docker-compose` services (`api`, `ui`) that each run the same image with a different `command:`.
+- **Coding-agent contribution:** Chose option 2 directly — it needs no process supervisor (a real dependency `AGENTS.md`'s "no half-finished implementations"/"keep it modest" spirit argues against introducing just to run two commands), gives each interface its own restart/log/port lifecycle, and lets `api` alone own the one-time index-sync step with a proper `healthcheck` gate (`ui` uses `depends_on: api: condition: service_healthy`) — avoiding a real race where both processes could otherwise call `sync_index()` concurrently against the same fresh, empty Chroma/SQLite store on first startup.
+- **Evidence reviewed:** `docker compose up --build` against fresh named volumes — `api` reached `healthy` only after its sync completed (`GET /status` → 23 indexed sources), and `ui` started only after that, never racing the initial sync.
+- **Decision and owner:** Option 2 — decided by the coding agent; a packaging-mechanics choice already covered by the approved Phase 9 plan, not a product tradeoff needing user input.
+- **Consequences or follow-up:** `docker-compose.yml`'s two named volumes (`index_data`, `feedback_data`) are the only persistent state; verified they survive `docker compose down`/`up` (not `down -v`). `data/database/company.db` ships baked into the image (the one reproducible fixture `AGENTS.md` allows committed) — no volume needed for it.
+- **Status:** Accepted
+
+### Decision: Pin `torch` to the CPU-only wheel index
+
+- **Phase:** 9 — Package the product (found while verifying the built image)
+- **Context:** The first built image was 18.7GB — almost entirely `nvidia-*`/`cuda-*` libraries pulled in transitively by `torch` (via `sentence-transformers`, used only for the small local embedding model). Nothing in this project uses a GPU: Groq handles all LLM inference remotely, and the embedding model runs on CPU. This directly conflicted with Phase 9's "keep the packaging modest" instruction, but fixing it meant touching `pyproject.toml`/`uv.lock` — a dependency-resolution change beyond what the approved Phase 9 plan (Docker files only) covered.
+- **Options considered:** (1) accept the large image and move on; (2) pin `torch` to PyPI's CPU-only wheel index (`download.pytorch.org/whl/cpu`) via `[tool.uv.sources]`, scoped to Linux (macOS already resolves a lean CPU/MPS build from the normal index, so no override needed there).
+- **Coding-agent contribution:** Flagged the finding and the scope question to the user directly rather than silently expanding the approved plan. Implemented option 2 after approval; found and worked around a real uv behavior along the way — `[tool.uv.sources]` only applies to a project's *direct* dependencies, and `torch` was purely transitive, so the override was silently ignored until `torch` was added to `[project.dependencies]` explicitly (confirmed via `uv lock -v`, which showed zero mentions of the custom index until that change).
+- **Evidence reviewed:** `uv lock -v` debug output before/after (confirmed `torch==2.14.0+cpu` resolves with no `nvidia-*`/`cuda-*` dependencies on Linux); rebuilt image measured at 4.78GB (down from 18.7GB); local macOS `uv sync` re-verified working (`torch.__version__` importable) after the re-lock.
+- **Decision and owner:** Option 2 — the user approved directly via `AskUserQuestion` after the finding was presented.
+- **Consequences or follow-up:** `uv lock` (regenerated from scratch, not a surgical `--upgrade-package`) incidentally bumped several unrelated packages to newer compatible versions (pydantic, streamlit, sentence-transformers, etc.) — all within this project's existing `>=` lower-bound constraints, smoke-tested locally, no issue found. None outstanding.
+- **Status:** Accepted

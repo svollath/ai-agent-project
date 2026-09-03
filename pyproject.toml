@@ -16,6 +16,7 @@ dependencies = [
     "python-frontmatter>=1.1.0",
     "sentence-transformers>=5.2.3",
     "streamlit>=1.55.0",
+    "torch>=2.9.0",
     "uvicorn>=0.41.0",
 ]
 
@@ -25,3 +26,20 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/company_assistant"]
+
+# Nothing in this project uses a GPU (Groq handles all LLM inference
+# remotely; the local sentence-transformers embedding model runs on CPU).
+# torch is promoted to a direct dependency (above) purely so this source
+# override applies to it (uv only honors [tool.uv.sources] for direct
+# dependencies, and torch is otherwise pulled in transitively by
+# sentence-transformers) — pinned to the CPU-only wheel index on Linux so
+# the default CUDA build (several GB of unused nvidia-* libraries) is never
+# resolved there. macOS already gets a lean CPU/MPS build from the normal
+# index, so no override is needed for that platform.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

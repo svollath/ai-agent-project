@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
+*.egg-info/
+
+# Environments and secrets — never enter the build context
+.venv/
+venv/
+env/
+.env
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.rumdl_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Generated/local project data — populated at runtime via named volumes
+data/index/
+data/generated/
+data/feedback/
+data/database/*.db-journal
+data/database/*.db-shm
+data/database/*.db-wal
+data/database/*.eval008-bak
+
+# Editors, VCS, and OS cruft
+.git/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Heavy design sources
+*.drawio
+*.psd
+
+# This session's plan files / scratch, not part of the app
+node_modules/
