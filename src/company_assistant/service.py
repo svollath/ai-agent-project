@@ -4,25 +4,13 @@ from pathlib import Path
 from textwrap import shorten
 
 from company_assistant.connectors import load_all_documents
-from company_assistant.indexing import SemanticIndex, chunk_by_paragraph
+from company_assistant.indexing import (
+    DEFAULT_SEMANTIC_INDEX_DIR,
+    chunk_by_paragraph,
+    get_shared_index,
+)
 from company_assistant.models import Answer, Citation, EmployeeContext, RetrievalMode, SearchResult
 from company_assistant.retrieval import hybrid_search, lexical_search, semantic_search
-
-# Paragraph chunking was chosen over whole-document chunking based on
-# evidence in deliverables/EVALUATION_REPORT.md's Phase 5 section: 12/15 vs
-# 9/15 expected sources found on the same pinned corpus, comparable latency.
-DEFAULT_SEMANTIC_INDEX_DIR = Path("data/index/semantic")
-
-_index_cache: dict[str, SemanticIndex] = {}
-
-
-def _get_semantic_index(index_dir: Path) -> SemanticIndex:
-    """Reuse one SemanticIndex (and its loaded embedding model) per directory."""
-
-    key = str(index_dir)
-    if key not in _index_cache:
-        _index_cache[key] = SemanticIndex(index_dir)
-    return _index_cache[key]
 
 
 def _excerpt(content: str, width: int = 240) -> str:
@@ -144,7 +132,7 @@ def answer_with_semantic(
     """
 
     documents, source_notes = load_all_documents(data_root)
-    index = _get_semantic_index(index_dir)
+    index = get_shared_index(index_dir)
     sync_result = index.sync(documents, chunk_by_paragraph)
     results = semantic_search(question, documents, employee, index)
     return _answer_from_results(
@@ -170,7 +158,7 @@ def answer_with_hybrid(
     """Return evidence from reciprocal-rank fusion of lexical and semantic results."""
 
     documents, source_notes = load_all_documents(data_root)
-    index = _get_semantic_index(index_dir)
+    index = get_shared_index(index_dir)
     sync_result = index.sync(documents, chunk_by_paragraph)
     results = hybrid_search(question, documents, employee, index)
     return _answer_from_results(

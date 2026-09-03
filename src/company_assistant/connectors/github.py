@@ -73,7 +73,11 @@ def load_github_issues(folder: Path) -> list[CompanyDocument]:
                     allowed_roles=parse_roles(issue.allowed_roles),
                     author=issue.author,
                     occurred_at=issue.updated_at,
-                    metadata={"number": issue.number, "state": issue.state},
+                    metadata={
+                        "number": issue.number,
+                        "state": issue.state,
+                        "labels": ",".join(issue.labels),
+                    },
                 )
             )
     return documents
@@ -110,7 +114,11 @@ def _normalize_live_issue(raw: dict[str, Any], repository: str) -> CompanyDocume
         allowed_roles=_allowed_roles_for_labels(labels),
         author=raw["user"]["login"],
         occurred_at=datetime.fromisoformat(raw["updated_at"].replace("Z", "+00:00")),
-        metadata={"number": raw["number"], "state": raw["state"]},
+        metadata={
+            "number": raw["number"],
+            "state": raw["state"],
+            "labels": ",".join(labels),
+        },
     )
 
 

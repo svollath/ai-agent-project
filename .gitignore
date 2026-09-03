@@ -27,6 +27,7 @@ htmlcov/
 data/index/
 data/generated/
 data/feedback/
+data/database/app_state.db
 data/database/*.db-journal
 data/database/*.db-shm
 data/database/*.db-wal

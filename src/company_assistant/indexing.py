@@ -262,3 +262,24 @@ def delete_index(persist_dir: Path) -> None:
     """Remove a semantic index directory entirely (used to reset between comparisons)."""
 
     shutil.rmtree(persist_dir, ignore_errors=True)
+
+
+# Paragraph chunking was chosen over whole-document chunking based on
+# evidence in deliverables/EVALUATION_REPORT.md's Phase 5 section: 12/15 vs
+# 9/15 expected sources found on the same pinned corpus, comparable latency.
+DEFAULT_SEMANTIC_INDEX_DIR = Path("data/index/semantic")
+
+_index_cache: dict[str, SemanticIndex] = {}
+
+
+def get_shared_index(index_dir: Path = DEFAULT_SEMANTIC_INDEX_DIR) -> SemanticIndex:
+    """Reuse one SemanticIndex (and its loaded embedding model) per directory.
+
+    Shared by service.py and agent.py so both pay the embedding-model load
+    cost only once per process, against the same on-disk collection.
+    """
+
+    key = str(index_dir)
+    if key not in _index_cache:
+        _index_cache[key] = SemanticIndex(index_dir)
+    return _index_cache[key]
