@@ -209,15 +209,15 @@ def _build_compare_sources_tool(
 ) -> StructuredTool:
     documents_by_id = {document.source_id: document for document in documents}
 
-    def _run(source_ids: list[str]) -> tuple[str, list[str]]:
+    def _run(source_ids: list[str]) -> tuple[str, list[dict[str, str]]]:
         lines = []
-        found_ids = []
+        found: list[dict[str, str]] = []
         for source_id in source_ids:
             document = documents_by_id.get(source_id)
             if document is None or employee.role not in document.allowed_roles:
                 lines.append(f"[{source_id}] not available.")
                 continue
-            status = document.metadata.get("status", "current")
+            status = str(document.metadata.get("status", "current"))
             occurred = (
                 document.occurred_at.date().isoformat() if document.occurred_at else "unknown date"
             )
@@ -225,8 +225,15 @@ def _build_compare_sources_tool(
                 f"[{source_id}] status={status}, occurred_at={occurred}, "
                 f"confidentiality={document.confidentiality}"
             )
-            found_ids.append(source_id)
-        return "\n".join(lines), found_ids
+            found.append(
+                {
+                    "source_id": source_id,
+                    "status": status,
+                    "occurred_at": occurred,
+                    "confidentiality": document.confidentiality,
+                }
+            )
+        return "\n".join(lines), found
 
     return StructuredTool.from_function(
         func=_run,

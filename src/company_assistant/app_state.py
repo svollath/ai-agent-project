@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from company_assistant.models import ActionProposal, ActionStatus, EmployeeContext
+from company_assistant.models import ActionProposal, ActionStatus, EmployeeContext, Feedback
 
 APP_STATE_PATH = Path("data/database/app_state.db")
 
@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 
 CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation_id
     ON conversation_messages (conversation_id);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    answer_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    rating TEXT NOT NULL,
+    reason_category TEXT,
+    retrieval_mode TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -110,6 +119,28 @@ def get_action_proposal(proposal_id: str, path: Path = APP_STATE_PATH) -> Action
             "SELECT * FROM action_proposals WHERE proposal_id = ?", (proposal_id,)
         ).fetchone()
     return _row_to_proposal(row) if row is not None else None
+
+
+def list_pending_proposals(
+    employee: EmployeeContext, path: Path = APP_STATE_PATH
+) -> list[ActionProposal]:
+    """All of one employee's proposals still awaiting a decision, oldest first.
+
+    Queries the persisted store directly (not session state), so a pending
+    proposal stays visible across page reloads and new sessions.
+    """
+
+    with closing(_connect(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            """
+            SELECT * FROM action_proposals
+            WHERE requested_by = ? AND status = 'pending_approval'
+            ORDER BY created_at ASC
+            """,
+            (employee.employee_id,),
+        ).fetchall()
+    return [_row_to_proposal(row) for row in rows]
 
 
 def get_action_proposal_history(
@@ -215,3 +246,62 @@ def get_conversation_history(
             (conversation_id, limit),
         ).fetchall()
     return [{"role": row["role"], "content": row["content"]} for row in reversed(rows)]
+
+
+def _row_to_feedback(row: sqlite3.Row) -> Feedback:
+    return Feedback(
+        answer_id=row["answer_id"],
+        conversation_id=row["conversation_id"],
+        rating=row["rating"],
+        reason_category=row["reason_category"],
+        retrieval_mode=row["retrieval_mode"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def save_feedback(feedback: Feedback, path: Path = APP_STATE_PATH) -> None:
+    """Persist one useful/not-useful rating. Keyed by answer_id, so a
+    resubmission (changed mind, or a UI double-fire) overwrites rather than
+    duplicates.
+    """
+
+    with closing(_connect(path)) as connection:
+        connection.execute(
+            """
+            INSERT INTO feedback
+                (answer_id, conversation_id, rating, reason_category, retrieval_mode, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(answer_id) DO UPDATE SET
+                rating = excluded.rating,
+                reason_category = excluded.reason_category,
+                retrieval_mode = excluded.retrieval_mode,
+                created_at = excluded.created_at
+            """,
+            (
+                feedback.answer_id,
+                feedback.conversation_id,
+                feedback.rating,
+                feedback.reason_category,
+                feedback.retrieval_mode,
+                feedback.created_at.isoformat(),
+            ),
+        )
+        connection.commit()
+
+
+def get_feedback_for_answer(answer_id: str, path: Path = APP_STATE_PATH) -> Feedback | None:
+    with closing(_connect(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            "SELECT * FROM feedback WHERE answer_id = ?", (answer_id,)
+        ).fetchone()
+    return _row_to_feedback(row) if row is not None else None
+
+
+def list_feedback(path: Path = APP_STATE_PATH) -> list[Feedback]:
+    """All feedback, oldest first. Used by the Phase 8 comparison dashboard."""
+
+    with closing(_connect(path)) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute("SELECT * FROM feedback ORDER BY created_at ASC").fetchall()
+    return [_row_to_feedback(row) for row in rows]

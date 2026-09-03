@@ -40,6 +40,11 @@ class DocumentChunk(BaseModel):
 
 Chunker = Callable[[CompanyDocument], list[DocumentChunk]]
 
+# Paragraph chunking was chosen over whole-document chunking based on
+# evidence in deliverables/EVALUATION_REPORT.md's Phase 5 section: 12/15 vs
+# 9/15 expected sources found on the same pinned corpus, comparable latency.
+DEFAULT_SEMANTIC_INDEX_DIR = Path("data/index/semantic")
+
 
 def chunk_by_document(document: CompanyDocument) -> list[DocumentChunk]:
     """One chunk per document: title plus full content."""
@@ -217,10 +222,7 @@ class SemanticIndex:
         return self.sync(documents, chunker)
 
     def last_indexed(self) -> datetime | None:
-        manifest = self._load_manifest()
-        if not manifest.entries:
-            return None
-        return max(entry.last_indexed for entry in manifest.entries.values())
+        return read_last_indexed(self.persist_dir)
 
     def query(
         self, query_text: str, employee_role: str, limit: int = 4
@@ -264,10 +266,19 @@ def delete_index(persist_dir: Path) -> None:
     shutil.rmtree(persist_dir, ignore_errors=True)
 
 
-# Paragraph chunking was chosen over whole-document chunking based on
-# evidence in deliverables/EVALUATION_REPORT.md's Phase 5 section: 12/15 vs
-# 9/15 expected sources found on the same pinned corpus, comparable latency.
-DEFAULT_SEMANTIC_INDEX_DIR = Path("data/index/semantic")
+def read_last_indexed(persist_dir: Path = DEFAULT_SEMANTIC_INDEX_DIR) -> datetime | None:
+    """Read the manifest's last-indexed timestamp without constructing a
+    SemanticIndex, whose __init__ eagerly loads the embedding model. Used by
+    /health and the Streamlit sidebar so checking index status never pays
+    that cost.
+    """
+
+    manifest_path = persist_dir / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    manifest = IndexManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+    return max((entry.last_indexed for entry in manifest.entries.values()), default=None)
+
 
 _index_cache: dict[str, SemanticIndex] = {}
 
