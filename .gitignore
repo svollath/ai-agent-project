@@ -40,3 +40,6 @@ Thumbs.db
 # Heavy design sources
 *.drawio
 *.psd
+
+# Container image tars (docker save output — build artifacts, not source)
+*.tar

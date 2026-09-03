@@ -1,0 +1,96 @@
+# 1 replica is a hard requirement, not a sizing preference:
+# - NiceGUI's ui.run_with() locates the running uvicorn.Server via
+#   gc.get_objects() at startup, which only works with a single worker
+#   process.
+# - Chat/action/feedback state lives in this process's memory (per-tab
+#   storage, the pending-action queue) — a second replica would silently
+#   diverge from the first, not share it.
+# strategy: Recreate (not the default RollingUpdate) so a redeploy never
+# briefly runs two pods of this image at once, for the same reason.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: northstar-assistant
+  namespace: northstar
+  labels:
+    app: northstar-assistant
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: northstar-assistant
+  template:
+    metadata:
+      labels:
+        app: northstar-assistant
+    spec:
+      containers:
+        - name: northstar-assistant
+          image: northstar-assistant-k3s-exp:latest
+          # Imported straight into containerd via `k3s ctr images import`
+          # (see k8s/README.md) — never pulled from a registry.
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8100
+          env:
+            # Matches the code's own default (os.environ.get(..., "openai/gpt-oss-20b"));
+            # set explicitly here so the deployed model choice is visible in one place.
+            - name: GROQ_MODEL
+              value: "openai/gpt-oss-20b"
+            - name: GITHUB_REPOSITORY
+              value: "AlexDeWilde/ai-agent-project-test-repo"
+          envFrom:
+            - secretRef:
+                name: northstar-secrets
+          resources:
+            # Sized against the VM's actual ~3.5GB free RAM (see PROGRESS_LOG.md) —
+            # a starting point, not a final number. Measure actual usage with
+            # `kubectl top pod -n northstar` after the first real deploy (a
+            # semantic/hybrid retrieval call or the startup sync — both load the
+            # embedding model — is the likely peak) and tune from there.
+            requests:
+              cpu: "250m"
+              memory: "500Mi"
+            limits:
+              cpu: "1"
+              memory: "1.5Gi"
+          # Heavy imports (torch, chromadb, sentence-transformers, langchain,
+          # nicegui) plus the startup index sync can take real time before the
+          # process accepts connections — the startupProbe's generous
+          # failureThreshold covers that so readiness/liveness never flap the
+          # pod during a normal, slow-but-healthy startup.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            periodSeconds: 5
+            failureThreshold: 36 # ~3 minutes
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            periodSeconds: 30
+          volumeMounts:
+            - name: index-data
+              mountPath: /app/data/index
+            - name: feedback-data
+              mountPath: /app/data/feedback
+            - name: generated-data
+              mountPath: /app/data/generated
+      volumes:
+        - name: index-data
+          persistentVolumeClaim:
+            claimName: northstar-index-data
+        - name: feedback-data
+          persistentVolumeClaim:
+            claimName: northstar-feedback-data
+        - name: generated-data
+          persistentVolumeClaim:
+            claimName: northstar-generated-data

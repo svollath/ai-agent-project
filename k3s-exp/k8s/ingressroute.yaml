@@ -1,0 +1,18 @@
+# k3s ships Traefik as its ingress controller by default — this only applies
+# Traefik's own IngressRoute CRD, no separate ingress controller install.
+# Plain HTTP only, by deliberate choice (no TLS/cert-manager for this
+# deliverable): entryPoints is just `web` (port 80), never `websecure`.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: northstar-assistant
+  namespace: northstar
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`northstar.sv5.de`)
+      kind: Rule
+      services:
+        - name: northstar-assistant
+          port: 80

@@ -1,0 +1,39 @@
+# Three small PVCs on k3s's bundled default StorageClass (Rancher's
+# local-path-provisioner — zero-install, node-local; fine for this
+# single-node cluster). At this project's teaching-fixture scale these stay
+# well under a few hundred MB combined.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: northstar-index-data
+  namespace: northstar
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: northstar-feedback-data
+  namespace: northstar
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: northstar-generated-data
+  namespace: northstar
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 100Mi

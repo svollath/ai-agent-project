@@ -1,0 +1,39 @@
+# Local container smoke test for the k3s-exp image — NOT used for the actual
+# k3s deployment (that's a cross-built linux/amd64 image imported directly
+# into the cluster's containerd; see k8s/README.md). This builds for the
+# host machine's own architecture, purely to verify the single-process
+# NiceGUI+FastAPI app behaves correctly in a container before cross-building.
+#
+# Run from the repo root: docker compose -f k3s-exp/docker-compose.yml up --build
+#
+# `k3sexp_generated_data` (data/generated/) holds the evaluation harness's
+# output — not written by the app automatically (only `evaluation.run`
+# writes it, run manually), and not baked into the image (git-ignored local
+# state). On a fresh volume the /evaluation page will say "No results yet"
+# until you populate it once:
+#   docker compose -f k3s-exp/docker-compose.yml cp data/generated/evaluation_results.json app:/app/data/generated/evaluation_results.json
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: k3s-exp/Dockerfile
+    image: northstar-assistant-k3s-exp:local
+    env_file: ../.env
+    ports:
+      - "8100:8100"
+    volumes:
+      - k3sexp_index_data:/app/data/index
+      - k3sexp_feedback_data:/app/data/feedback
+      - k3sexp_generated_data:/app/data/generated
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+volumes:
+  k3sexp_index_data:
+  k3sexp_feedback_data:
+  k3sexp_generated_data:
