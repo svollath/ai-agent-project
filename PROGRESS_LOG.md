@@ -10,14 +10,21 @@ Lunch 13:00–13:30 every day.
 | --- | --- | --- |
 | Tue 2026-09-01 | until 16:00 | Used — Phases 1–2 (Product Brief, Access Matrix) |
 | Wed 2026-09-02 | 12:00–~17:30 (ran past the planned end) | Phases 3, 4, and 5 all done |
-| **Thu 2026-09-03 (today)** | 10:00–16:00 | In progress — Phase 6 (tools + agent) done this session; session paused mid-morning to commit and hand off cleanly. Phase 7 still fits today if resumed soon |
-| Fri 2026-09-04 | 10:00–12:00 | Planned for Phase 8 start only (2h) |
+| **Thu 2026-09-03 (today)** | 10:00–16:00 | Phase 6 (tools + agent), Phase 7 (full product experience), and Phase 8 (comparative evaluation) all completed this session — see Phase Status below |
+| Fri 2026-09-04 | 10:00–12:00 | Planned for Phase 9 (Docker packaging) start |
 
-Flagged risk (updated): Phase 6 landed faster than expected (tool layer +
-agent runtime both done Thursday morning), so there's real slack left today
-for Phase 7 (full product experience: Streamlit + FastAPI wiring, approval
-UI, feedback). Phases 8–10 still likely won't fit in Friday's 2-hour window —
-still worth deciding whether to compress scope or plan a follow-up session.
+Flagged risk (updated): Phases 6, 7, and 8 all landed Thursday. Groq's
+free-tier daily token quota (200k TPD) was hit twice this session — once
+during Phase 7's live testing, and again at the start of Phase 8, where a
+"new" API key issued within the *same organization* did not reset it (only
+a genuinely different-org key did). Any future live-evaluation batch should
+confirm the org differs before assuming a key rotation helps, and should
+still budget for pacing across more than one day or a paid tier. Phase 8
+also surfaced a real, undecided product question (documented, not fixed —
+see `DECISIONS.md`): the agent can exhaust its tool-call budget on
+ambiguously-worded questions. Phases 9–10 still likely won't fit in a single
+2-hour session — worth deciding whether to compress scope or plan a
+follow-up.
 
 ## Product Direction (Locked In)
 
@@ -39,8 +46,8 @@ still worth deciding whether to compress scope or plan a follow-up session.
 | 4 — Live GitHub connector | **Done, pending human review** | Connected `AlexDeWilde/ai-agent-project-test-repo` (public, no token) via new `connectors/github_live.py` (httpx, pagination, `state=all`, PR-filtering, by-label `allowed_roles`, real `html_url` citations). Wired additively into `registry.py`/`service.py` — verified via direct fetch, pagination stress test (no dupes/gaps across 4 pages), forced-failure test (`GitHubConnectorError`, no fabrication), and an actual FastAPI `/ask` call citing a live issue with a real URL. **Important correction made mid-phase:** first wired it as a swap (live replaces local GitHub), which would have broken every Atlas eval case (`GH-142`/`GH-149`) whenever the live repo was reachable — caught via regression-testing against Phase 3, fixed to merge (local Atlas export always loads, live issues are additive). Full detail: `deliverables/DECISIONS.md` ("Live GitHub repository is additive, not a swap"). **Known residual gap:** this repo's content is about the connector itself, not Atlas, so priority question 2 ("must work against live + local") is proven at the mechanism level, not with matching Atlas content on the live side — see `EVALUATION_REPORT.md`. |
 | 5 — Managed RAG (Chroma, hybrid) | **Done, pending human review** | New `indexing.py` (chunking, manifest, `sync_index()`/`rebuild_index()`) + `retrieval.semantic_search()`/`hybrid_search()` (RRF, k=60) alongside the untouched lexical baseline; `service.answer()` now takes a `retrieval_mode`. Verified: permissions enforced *inside* Chroma via per-role boolean metadata + `where` filter (HR-record test + a Priya positive control); full EVAL-011 index-lifecycle proof (add → sync → retrievable → delete → sync → gone) run in an isolated sandbox that never touched the real index; `rebuild_index()` recovers from a corrupted manifest. Compared all 3 modes on 6 cases: **lexical wins on this fixture** (4/6 recall, 0.15 ms) vs. hybrid (3/6, 8.4 ms) and semantic (2/6, 9.1 ms) — kept lexical as the default. Full detail and worked RRF examples (one recovery, one instructive near-miss) in `EVALUATION_REPORT.md`'s Phase 5 section and `DECISIONS.md`. **New finding, not a regression from this phase but surfaced by its comparison work:** EVAL-012 / "which GitHub issues are open" fails expected-source recall in *all three* modes because the live connector's same-dated issues out-tie the older local Atlas fixture at `limit=4` — deliberately not patched by raising `limit`; flagged as justification for Phase 6's `search_work_items` tool instead. See Open Items. |
 | 6 — Tools + agent | **Done, pending human review** | Tool layer (`src/company_assistant/tools/`): `search_company_knowledge`, `search_work_items` (fixes Phase 5's GitHub top-*k* gap), `get_support_case`, `list_project_status`, `open_source`, `propose_action`, all verified with normal/denied/empty/failure inputs; identity injected via closure (verified via schema inspection — no tool exposes `employee`); full approve/reject/edit/execute lifecycle with no tool wrapper on any of the four (agent structurally cannot call them). Agent runtime (`src/company_assistant/agent/`): one bounded `create_agent` + `ChatGroq` (`openai/gpt-oss-20b`), `ToolStrategy`-based structured output (`AgentAnswer`), citations verified against actual tool results before becoming real `Citation`s (never trust the model's self-report). Tested with ~20 **live Groq calls** across 8 EVAL cases — see `EVALUATION_REPORT.md`'s Phase 6 sections and 5 new `DECISIONS.md` entries for full evidence. **Two real bugs found and fixed via live testing:** (1) `ActionProposal.payload` was too narrow (no array values — Groq rejected a natural `labels: [...]` field, widened the type); (2) the agent burned its whole tool-call budget rephrasing an unanswerable query instead of abstaining, and separately conflated "sounds financial" with "forbidden" — both fixed (a tool-call-count cap on `search_company_knowledge` specifically, plus a clearer forbidden-vs-insufficient-evidence prompt section), verified 3/3 clean afterward. **New reliability finding (not a bug in this code):** `openai/gpt-oss-20b` on Groq intermittently fails to produce a valid structured tool call (malformed JSON, a "functions."-prefixed name, or plain text instead of a tool call) — always safely caught as `status="error"`, never a crash or fabrication; recommend `ModelRetryMiddleware` in Phase 7/8. Also hit Groq's free-tier rate limit (8000 TPM) after ~20 calls in quick succession — pace future live-evaluation batches. Security properties (no HR leak, injection resistance, no self-approval, no execution without approval) held across every live run. |
-| 7 — Full product experience | Not started | |
-| 8 — Comparative evaluation | Not started | |
+| 7 — Full product experience | **Done, pending human review** | `app.py`/`api.py` now call `agent.answer_with_agent()` instead of the Phase 3 lexical-only baseline. Streamlit gained: identity-switch history clearing (a self-identified gap in the starter, see below), a system-status sidebar (index freshness, GitHub state, manual "Resync index" button), a "Pending actions" panel with Approve/Reject/Edit buttons calling `tools.actions` directly (never through the agent), status-colored answer banners, conditional clickable citations, a renamed "Tool trace" expander, and a Useful/Not-useful (+ reason) feedback control persisting to a new `feedback.py` module (JSONL under `data/feedback/`). FastAPI gained `/status`, `/feedback`, and `/actions/{id}/approve\|reject\|edit`, plus an agent-backed `/ask`. Verified live in a real browser (no project run skill existed, so a one-off Playwright driver script was used) and via `fastapi.testclient.TestClient` for the API — see `EVALUATION_REPORT.md`'s new Phase 7 section and 5 new `DECISIONS.md` entries. **Two real findings from live testing:** (1) the Phase 0 starter never cleared chat history on identity switch — a real cross-identity evidence-leak vector, fixed; (2) `ModelRetryMiddleware`'s default `retry_on` was retrying Groq's daily-token-quota (TPD) 429s, which can never succeed within a few backed-off seconds — narrowed to exclude `ModelRateLimitError` specifically. Groq's 200k-token daily quota was hit (~99.5% used) partway through live testing; every failure degraded safely to `status="error"`, never a crash or fabrication, confirming the safety design holds under a real production-like failure. |
+| 8 — Comparative evaluation | **Done, pending human review** | New `src/company_assistant/evaluation/run.py` harness ran all 12 cases through the lexical baseline, the shipped lexical+agent default (only the 4 cases Phase 6 hadn't already covered live), and semantic+agent/hybrid+agent (all 12 each) — 44 live result rows, `data/generated/evaluation_results.json`. **Release-blocking metric: 0 forbidden-source leaks across all 44 rows.** Verdicts hand-corrected after reviewing actual stored text/citations/traces (13 corrections vs. the harness's automatic first pass — written back into the JSON so the report and the new `pages/evaluation.py` dashboard never disagree): 25 Pass / 7 Partial / 8 Fail / 4 N/A (structural baseline limitations). **Two operational findings, same session:** (1) a "new" Groq API key issued within the *same organization* as an already-exhausted one does not reset the daily quota — confirmed the hard way; only a genuinely different-org key worked. (2) New product weakness: EVAL-011/012's agent variants repeatedly hit the global 10-tool-call ceiling without answering — one clear cause (a wrong-tool retry loop on `search_work_items`, unguarded by the per-tool retry cap that only covers `search_company_knowledge`), one still-unexplained sub-pattern (stopping after 0–1 tool calls with the same message). Documented as-is per the user's explicit choice, not fixed this phase. `EVALUATION_REPORT.md`'s `Scenario Results`, `Product and Operational Evidence`, `Failure Analysis`, and `Residual Risks` are now filled in (`Release Recommendation` deliberately left for Phase 10). New `pages/evaluation.py` (Streamlit multipage dashboard) verified live in a real browser, zero exceptions. 3 real feedback entries seeded via live UI clicks (2 useful, 1 not-useful+reason), per the user's explicit choice over synthetic data. |
 | 9 — Docker packaging | Not started | |
 | 10 — Decide and demonstrate | Not started | |
 
@@ -96,7 +103,8 @@ M deliverables/ACCESS_MATRIX.md           (Enforcement Notes: citation recheck p
 
 `data/index/` (the Chroma persistent store + `manifest.json`) is git-ignored, as intended — not part of this list.
 
-Not yet committed (this session, Phase 6 — tool layer + agent runtime, still on `phase3-4-baseline-live-github`):
+Committed on branch `phase3-4-baseline-live-github` at `bab5035` ("Complete
+Phase 5 (managed RAG) and Phase 6 (tools + agent)"):
 
 ```
 A src/company_assistant/tools/__init__.py         (build_tools(employee, data_root, retrieval_mode) — the agent's entry point)
@@ -111,6 +119,31 @@ M deliverables/EVALUATION_REPORT.md               (Phase 6 tool-layer AND agent 
 M deliverables/DECISIONS.md                       (7 new decisions total: closure-based identity injection, search_work_items scoping, citation verification, ToolStrategy, payload widening, + the two live-testing bug fixes)
 M deliverables/ACCESS_MATRIX.md                   (citation recheck and pre-execution identity recheck both marked done; confirmed live through the agent, not just direct tool calls)
 ```
+
+Not yet committed (this session, Phase 7 — full product experience, still on `phase3-4-baseline-live-github`):
+
+```
+M app.py                                          (agent-backed chat, identity-switch history reset, system-status sidebar + resync button, pending-actions approval panel, status banners, conditional citation links, feedback control)
+M src/company_assistant/api.py                    (agent-backed /ask, new /status, /feedback, /actions/pending, /actions/{id}/approve|reject|edit)
+M src/company_assistant/agent/__init__.py         (ModelRetryMiddleware added, then narrowed to exclude ModelRateLimitError from retry)
+M src/company_assistant/models.py                 (Answer.answer_id; new Feedback/FeedbackRating/FeedbackReason)
+A src/company_assistant/feedback.py               (record_feedback/list_feedback — JSONL under data/feedback/, git-ignored)
+M deliverables/EVALUATION_REPORT.md               (new Phase 7 section: live browser + TestClient evidence, both live-testing findings)
+M deliverables/DECISIONS.md                       (5 new decisions: ModelRetryMiddleware + retry_on narrowing, approve-triggers-execute, feedback-as-JSONL, identity-switch history clearing)
+```
+
+Not yet committed (this session, Phase 8 — comparative evaluation, still on
+`phase3-4-baseline-live-github`):
+
+```
+A src/company_assistant/evaluation/run.py         (harness: runs all 12 cases through 3 variants, writes data/generated/evaluation_results.json)
+A pages/evaluation.py                             (Streamlit multipage dashboard: Pass/Partial/Fail/N/A by category, coverage/latency by variant, feedback counts, unresolved-failures table)
+M deliverables/EVALUATION_REPORT.md               (Thresholds table filled in; new Phase 8 section; Scenario Results, Product and Operational Evidence, Failure Analysis, and Residual Risks all filled in — Release Recommendation deliberately left for Phase 10; Product Evaluated section corrected — model/version/date fields were stale since Phase 6/7)
+M deliverables/DECISIONS.md                       (5 new decisions: 3-variant comparison scope, live-UI feedback seeding, document-not-fix the tool-call-limit finding, hand-corrected verdicts written back into the results JSON)
+```
+
+`data/generated/evaluation_results.json` and `data/feedback/feedback.jsonl`
+are both git-ignored (generated/local state), not part of this list.
 
 ## Planned Post-Phase-8 Work: Packaging Experiment (Phases 9/10)
 
@@ -152,31 +185,32 @@ manifests (Deployment, Service) plus a Traefik `IngressRoute` for
 - Whether the abstention gap found in Phase 3 (baseline returns irrelevant-but-permitted evidence instead of abstaining, EVAL-005/EVAL-007) should be patched with a minimal relevance-score cutoff in the lexical baseline itself, or left as-is and solved only by the semantic/agent layers in Phase 5–6 (current lean: leave it — `AGENTS.md` says "preserve the lexical baseline" and the whole point of Phase 3 is to document this as the comparison point, not fix it prematurely).
 - **New from Phase 4:** priority question 2 ("which Atlas GitHub issues are open, live + local") isn't content-complete — the live repo (`AlexDeWilde/ai-agent-project-test-repo`) has no Atlas-themed issues, so the live path proves connector mechanics, not the actual Atlas answer. Decide whether to (a) ask the repo owner to add 1–2 Atlas/billing-labeled issues, (b) accept and explicitly narrow priority question 2's wording, or (c) leave as a named residual risk for Phase 8. See `DECISIONS.md`.
 - ~~EVAL-012/priority question 2 fails expected-source recall in every retrieval mode (`GH-149` tie-broken out of the top-4 window)~~ — resolved by Phase 6's `search_work_items` tool, which ranks GitHub issues only against each other. Verified: `GH-142` and `GH-149` both present for the exact failing query. The content-completeness item just above (Phase 4's residual gap — the live repo has no Atlas-themed issues) is separate and still open.
-- No scheduled/automatic index sync exists yet — `sync_index()` must be called explicitly (it was, manually, for this session's evidence). Phase 7 should decide whether the UI needs a manual "resync" control or whether syncing once on app startup is enough for the demo.
+- ~~No scheduled/automatic index sync exists yet~~ — Phase 7 added a manual "Resync index" sidebar button (calls `sync_index()` directly); no automatic/scheduled sync, which is fine for a single-user demo.
 - **New from Phase 6:** the action-proposal store and audit log are in-memory/per-process — restarting the app loses all proposal history. Fine for this prototype (recorded in `ACCESS_MATRIX.md`); flag if a persisted store becomes a Phase 8 evaluation requirement.
-- **New from Phase 6:** `openai/gpt-oss-20b` on Groq intermittently fails to produce a valid structured tool call (malformed JSON / a "functions."-prefixed tool name / plain text instead of a tool call), surfacing as `status="error"` on the first attempt rather than the correct answer. Never caused a leak or fabrication — always safely caught — but it's a real product-quality/reliability issue worth a decision: add `langchain.agents.middleware.ModelRetryMiddleware` (recommended, cheap to try), switch to a different Groq-hosted model, or accept and document the failure rate for Phase 8. See `EVALUATION_REPORT.md`'s provider-reliability finding for the observed failure modes.
-- **New from Phase 6:** Groq's free-tier rate limit (8000 TPM) was hit once after ~20 live calls in quick succession during this session's testing. Pace any future large live-evaluation batch (e.g. Phase 8's full 12-case run across 3 retrieval variants) with delays or smaller batches, or budget for a paid tier if the full comparison needs to run in one sitting.
+- ~~`openai/gpt-oss-20b` on Groq intermittently fails to produce a valid structured tool call~~ — Phase 7 added `ModelRetryMiddleware` (see `DECISIONS.md`); reduces but does not eliminate the failure rate, and every observed failure (with or without the middleware) degrades safely to `status="error"`, never a crash or fabrication.
+- ~~**Groq's daily token quota (200k TPD)**~~ — hit again at the start of Phase 8 (a "new" key in the same org didn't reset it; confirmed by comparing organization IDs in the error payload). A genuinely different-org key resolved it for this session. Residual risk, not fully closed: rotating keys should never be assumed to reset the quota without confirming the org differs, and any future full comparative run should still budget for pacing across more than one day or a paid tier.
+- ~~**New from Phase 7: citation-link rendering not re-verified after the `retry_on` fix**~~ — still open; not re-checked in Phase 8 either (no citation-bearing answer with an `http` source_path happened to come up in this phase's live checks). Low risk, unchanged assessment.
+- **New from Phase 7, still open:** FastAPI's `/ask` accepts `conversation_history` but nothing currently exercises multi-turn conversation through it — only Streamlit drives real conversations today.
+- **New from Phase 8:** tool-routing failures on ambiguous phrasing (EVAL-011/012) — a real, reproducible weakness where the agent hits its global tool-call ceiling instead of answering. One cause (a wrong-tool retry loop, unguarded by the per-tool retry cap) is understood; a second sub-pattern (stopping after 0–1 tool calls with the same message) is not. Documented, not fixed, per the user's explicit choice — see `EVALUATION_REPORT.md`'s Phase 8 section and Failure Analysis.
+- **New from Phase 8:** the evaluation harness's automatic verdict function has no dedicated branch for `indirect_prompt_injection` (EVAL-006) — it produced a false `Fail` that trace review corrected to `Pass`. Worth a real fix in `run.py` if the harness is reused later.
+- **New from Phase 8:** the Reject action button exists in `app.py` but has only ever been verified via direct function call (Phase 6), never clicked live in the UI.
 
 ## Next Immediate Step
 
-Phase 6 (tools + agent) is fully captured in `deliverables/EVALUATION_REPORT.md`
-(two dedicated sections, with live Groq-call evidence) and 7 new `DECISIONS.md`
-entries. Per `AGENTS.md`'s collaboration workflow, this needs human review/
-acceptance before Phase 7 starts — including a call on the provider-reliability
-open item above (add retry middleware now, or carry it forward?).
+Phase 8 (comparative evaluation) is fully captured in
+`deliverables/EVALUATION_REPORT.md` — Thresholds, a new Phase 8 section, and
+`Scenario Results`/`Product and Operational Evidence`/`Failure
+Analysis`/`Residual Risks` are all filled in (`Release Recommendation`
+deliberately left for Phase 10, per `05-evaluation-and-release.md`) — plus 5
+new `DECISIONS.md` entries. Per `AGENTS.md`'s collaboration workflow, this
+needs human review/acceptance before Phase 9 starts.
 
-Once accepted: **Phase 7 — Full Product Experience** per `04-connected-rag-and-agent.md`.
-Connect `agent.answer_with_agent()` to both Streamlit (`app.py`) and FastAPI
-(`api.py`), replacing/extending the current `answer_with_baseline`-only wiring.
-Make trust boundaries visible: selected employee identity/role, answer status and
-retrieval mode, citations that open the source, contradiction/staleness/
-insufficient-evidence warnings, an expandable tool trace and last-indexed status
-(`indexing.last_indexed_status()` already exists for this), action-approval controls
-separate from the chat input (wire to `tools.actions.approve_action`/`reject_action`/
-`edit_action`/`execute_action` — never through the agent), and a simple useful/
-not-useful feedback control. Persist only minimal feedback fields, not full
-conversations. `service.answer()` already supports `retrieval_mode` end to end for
-when Phase 8 needs to compare variants through the UI.
+Once accepted: **Phase 9 — Docker packaging** per the course's numbered
+files. Note the user's separate, larger packaging plan (NiceGUI + k3s/Traefik,
+`DECISIONS.md`'s "Defer a NiceGUI + k3s/Traefik packaging experiment"
+entry) — confirm with the user whether Phase 9 proceeds as the course's
+plain single-container ask first, or whether to go straight to the larger
+experiment.
 
 **Housekeeping for whoever resumes this session:** the branch is
 `phase3-4-baseline-live-github` (yes, named after Phases 3–4, now also carrying

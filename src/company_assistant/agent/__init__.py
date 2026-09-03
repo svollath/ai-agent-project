@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import ToolCallLimitMiddleware
+from langchain.agents.middleware import ModelRetryMiddleware, ToolCallLimitMiddleware
 from langchain.agents.structured_output import ToolStrategy
+from langchain_core.exceptions import ModelRateLimitError
 from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field, ValidationError
 
@@ -93,6 +94,22 @@ def build_agent(
         tools=build_tools(employee, data_root, retrieval_mode),
         system_prompt=SYSTEM_PROMPT,
         middleware=[
+            # Groq's openai/gpt-oss-20b intermittently returns a malformed
+            # structured tool call (bad JSON, a "functions."-prefixed name,
+            # or plain text) — see DECISIONS.md. Retrying the model call
+            # fixes most of these transparently; `on_failure="continue"`
+            # (the default) keeps the existing safe fallback if retries are
+            # exhausted: `answer_with_agent` below still catches that as a
+            # controlled `status="error"`, never a crash or fabrication.
+            # Excludes rate-limit errors from retry: a 429 from Groq's daily
+            # token quota can't be fixed by waiting a few backed-off seconds
+            # (the quota resets on a ~24h cycle), so retrying it only adds
+            # latency and extra requests for a failure that is certain to
+            # recur immediately — fail fast instead, see DECISIONS.md.
+            ModelRetryMiddleware(
+                max_retries=2,
+                retry_on=lambda exc: not isinstance(exc, ModelRateLimitError),
+            ),
             ToolCallLimitMiddleware(run_limit=MAX_TOOL_CALLS, exit_behavior="end"),
             ToolCallLimitMiddleware(
                 tool_name="search_company_knowledge",

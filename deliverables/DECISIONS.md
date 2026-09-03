@@ -157,3 +157,91 @@ Record meaningful product and architecture decisions, not every small edit.
 - **Decision and owner:** Widen to `dict[str, str | int | float | bool | None | list[str]]` in both `models.py` and `tools/actions.py` — decided by the coding agent as a minimal, well-motivated type correction, not scope creep, since AGENTS.md's "typed inputs and outputs" requirement is best served by a type that matches reality.
 - **Consequences or follow-up:** None outstanding. Still excludes nested objects/dicts as payload values — no observed need for that yet.
 - **Status:** Accepted
+
+### Decision: Adopt `ModelRetryMiddleware`, but exclude rate-limit errors from retry
+
+- **Phase:** 7 — Full product experience
+- **Context:** Phase 6 flagged (but deferred) `openai/gpt-oss-20b`'s intermittent malformed structured-output failures, recommending `ModelRetryMiddleware` as a Phase 7/8 fix. The user approved adding it before wiring the UI up to the agent, so a colleague demoing Phase 7 hits it less often.
+- **Options considered:** (1) don't add it, keep documenting the failure rate; (2) add it with library defaults (`max_retries=2`, default `retry_on`); (3) add it with a narrowed `retry_on` that excludes rate-limit errors specifically.
+- **Coding-agent contribution:** Implemented option 2 first, then discovered live (mid-session, via a real Groq 429) that the default `retry_on` retries `ModelRateLimitError` — confirmed by reading `langchain_core.exceptions` (`ModelRateLimitError.is_retryable = True`, and `default_retry_on` returns that flag for any `ModelError` subclass). Reasoned that retrying a **daily** token-quota exhaustion within a few backed-off seconds can never succeed (the quota resets on a ~24h cycle) — every retry in that case is pure wasted latency and an extra request for a failure guaranteed to recur immediately. Switched to option 3 (`retry_on=lambda exc: not isinstance(exc, ModelRateLimitError)`) and verified the lambda directly (`False` for a rate-limit error, `True` for a timeout), plus confirmed no regression by re-running the same question immediately before and after the change (both correctly still failed safely while the quota was exhausted; a later call once headroom freed up returned a normal answer).
+- **Evidence reviewed:** The live `RateLimitError` traceback (`"tokens per day (TPD): Limit 200000, Used 198961"`); `langchain_core.exceptions`' `ModelError`/`ModelRateLimitError` source; `langchain.agents.middleware.model_retry`'s `default_retry_on` source.
+- **Decision and owner:** Option 3 — the user asked directly whether requests toward Groq could be reduced design-wise; this was the concrete, correct answer (not just "we tested a lot today," though that was also true), so the user approved applying it.
+- **Consequences or follow-up:** The original malformed-tool-call failure mode (Phase 6) still gets up to 2 retries, unchanged. A quota-exhaustion 429 now fails on the first attempt instead of the third, saving ~7s of guaranteed-futile backoff per hit; it does not and cannot recover lost daily quota. Phase 8's full comparative evaluation (12 cases × 3 retrieval variants, live) should assume it may need to span more than one day against this tier, or budget for a paid tier.
+- **Status:** Accepted
+
+### Decision: Approve triggers execute immediately; one click, not two
+
+- **Phase:** 7 — Full product experience
+- **Context:** `tools/actions.py` keeps `approve_action` and `execute_action` as separate functions, each independently rechecking state. Phase 7 needed to decide whether Streamlit's "Approve" button should only call `approve_action` (leaving a separate "Execute" step for later) or call both in sequence.
+- **Options considered:** (1) two explicit steps/buttons — "Approve" moves a proposal to `approved`, a later "Execute" button (appearing only for already-approved items) actually runs it; (2) one "Approve" button that calls `approve_action` then, on success, `execute_action` immediately.
+- **Coding-agent contribution:** Read `04-connected-rag-and-agent.md`'s own state diagram, where the `Approve` edge points directly at `Controlled execution` with no intermediate manual step shown — option 2 matches that diagram literally. `execute_action` already independently rechecks the proposal is actually `approved` immediately before running (not relying on the UI's sequencing), so collapsing the two calls into one button click doesn't weaken the recheck-before-execution guarantee the spec asks for.
+- **Evidence reviewed:** The mermaid diagram in `04-connected-rag-and-agent.md`; `tools/actions.py`'s `execute_action`, which re-verifies `status == "approved"` and sets `status = "failed"` otherwise.
+- **Decision and owner:** Option 2 — decided by the coding agent as the more literal reading of the supplied spec; verified live (Approve by a non-requester employee moves a proposal straight to `executed` and off the pending list in one click).
+- **Consequences or follow-up:** None outstanding. If a future phase wants a manual hold between approval and execution (e.g. a real external system in the loop), `approve_action`/`execute_action` are already separate functions — only the UI wiring would need to change.
+- **Status:** Accepted
+
+### Decision: Feedback persisted as JSONL under `data/feedback/`, not a new SQLite table
+
+- **Phase:** 7 — Full product experience
+- **Context:** `04-connected-rag-and-agent.md` asks Phase 7 to persist a minimal useful/not-useful record (answer/conversation id, rating, reason, retrieval mode, timestamp). `AGENTS.md` restricts committed local databases to the one reproducible teaching fixture (`data/database/company.db`), and `.gitignore` already had a (previously unused) `data/feedback/` entry.
+- **Options considered:** (1) a new table in `company.db`; (2) a new, separate SQLite file; (3) append-only JSONL under `data/feedback/`.
+- **Coding-agent contribution:** Noticed the pre-existing `data/feedback/` gitignore entry before writing any code — a strong signal of the intended shape — and picked JSONL specifically because feedback is simple, append-mostly, low-volume records with no relational structure worth a schema; matches `database.py`'s existing plain-function style (`record_feedback`/`list_feedback`) without adding a second database engine to the project.
+- **Evidence reviewed:** `.gitignore`; `AGENTS.md`'s "never commit... local databases other than the reproducible teaching fixture" rule; `database.py` for the existing plain-function convention.
+- **Decision and owner:** Option 3 — decided by the coding agent; low-risk, easily revisited if Phase 8 needs querying beyond what `list_feedback()` provides.
+- **Consequences or follow-up:** `Feedback` (in `models.py`) deliberately excludes employee identity and conversation text, matching the spec's "persist only the minimum" instruction. `feedback.py`'s `list_feedback()` exists for Phase 8's evaluation report to read back, not used by the UI itself.
+- **Status:** Accepted
+
+### Decision: Clear conversation history on employee-identity switch
+
+- **Phase:** 7 — Full product experience (self-identified gap in the Phase 0 starter, not requested)
+- **Context:** The starter `app.py` never reset `st.session_state.messages` when the employee selector changed. Since `answer_with_agent`'s `conversation_history` is built from that session state and fed back into the model as prior turns, a lower-privileged identity selected mid-session would inherit the previous identity's full conversation — including any evidence text a higher-privileged role had seen — directly into the new identity's model context.
+- **Options considered:** (1) leave it (matches the starter, but is a real cross-identity leak vector); (2) clear `messages` (and per-message feedback/edit widget state) whenever the selected `employee_id` changes.
+- **Coding-agent contribution:** Identified this while wiring the identity selector for Phase 7, not asked for; framed it explicitly as a permission-boundary issue (this project's fictional role selector doubles as its only access-control mechanism, per `PRODUCT_BRIEF.md`'s risk statement) rather than a cosmetic UX gap, and fixed it in the same change rather than deferring.
+- **Evidence reviewed:** `app.py`'s original `st.session_state.messages` handling (Phase 0 starter); verified live by switching identity mid-conversation and confirming zero chat messages remain (`[data-testid="stChatMessage"]` count 0).
+- **Decision and owner:** Option 2 — decided by the coding agent; flagged to the user as a proactive fix in the Phase 7 report rather than silently bundled in.
+- **Consequences or follow-up:** None outstanding. Pending action proposals are intentionally NOT cleared on identity switch (they're global, per-process state visible to any identity, by design — see the Phase 6 "in-memory, per-process" decision).
+- **Status:** Accepted
+
+### Decision: Compare exactly 3 required variants, not a 4th lexical+agent column
+
+- **Phase:** 8 — Comparative evaluation
+- **Context:** `05-evaluation-and-release.md` requires comparing at least 3 system variants live. The obvious 4th column — lexical retrieval + agent, the shipped default — was already exercised live for 8 of 12 cases in Phase 6, and the freshly-reset Groq quota was known to be tight (Phase 7's TPD finding).
+- **Options considered:** (1) run all 4 combinations (lexical baseline, lexical+agent, semantic+agent, hybrid+agent) across all 12 cases; (2) run only the 3 spec-required variants across all 12 cases, and for lexical+agent specifically, only run the 4 cases Phase 6 hadn't already covered live (EVAL-001/004/008/011), citing Phase 6's existing evidence for the other 8.
+- **Coding-agent contribution:** Proposed option 2 explicitly to conserve quota, with the exact row-count math (13 + 5 + 13 + 13 = 44 rows vs. a larger count for option 1) so the user could see the tradeoff plainly.
+- **Evidence reviewed:** Phase 6's Agent Findings table (already covers lexical+agent for 8 cases); Phase 7's TPD-quota finding.
+- **Decision and owner:** Option 2 — the user chose it directly via `AskUserQuestion` ("Just the 3 required variants").
+- **Consequences or follow-up:** The Scenario Results table's lexical+agent row mixes Phase 6 citations (8 cases) with this phase's fresh data (4 cases) — flagged explicitly in that table's intro so the mixed provenance isn't hidden.
+- **Status:** Accepted
+
+### Decision: Seed feedback via real live UI clicks, not synthetic JSON
+
+- **Phase:** 8 — Comparative evaluation
+- **Context:** The evaluation dashboard (`pages/evaluation.py`) needed non-empty feedback data to be meaningfully inspectable, and `data/feedback/feedback.jsonl` was empty (the Phase 7 verification entries were deliberately cleared as test data).
+- **Options considered:** (1) write a handful of `Feedback` records directly to the JSONL file; (2) start Streamlit and click the real Useful/Not-useful(+reason) buttons for a few of the evaluation questions, across different employee profiles.
+- **Coding-agent contribution:** None beyond executing the choice — this was a straightforward manual-vs-live-generated-data tradeoff with no hidden complexity, so it was put to the user directly rather than assumed.
+- **Evidence reviewed:** N/A — a preference question, not an evidence question.
+- **Decision and owner:** Option 2 — the user chose it directly via `AskUserQuestion` ("Seed a few real entries via the live UI").
+- **Consequences or follow-up:** 3 entries seeded (2 useful, 1 not-useful with reason `stale_evidence`), verified in `feedback.jsonl` and rendered correctly on the dashboard. Small additional live-call cost, already agreed.
+- **Status:** Accepted
+
+### Decision: Document the tool-call-limit/wrong-tool-selection finding as-is; do not fix it mid-evaluation
+
+- **Phase:** 8 — Comparative evaluation
+- **Context:** The harness's live run surfaced a real, reproducible weakness: on EVAL-011 ("the temporary Atlas **work item**") and EVAL-012, several agent variants exhausted the global 10-tool-call budget without answering — one clearly traced to a wrong-tool retry loop (`search_work_items` instead of `search_company_knowledge`, driven by the case's own wording; the per-tool retry guard only covers `search_company_knowledge`), the other pattern (stopping after 0–1 tool calls with the same generic message) not fully explained by the visible trace.
+- **Options considered:** (1) document the finding exactly as diagnosed in `EVALUATION_REPORT.md`'s Failure Analysis/Residual Risks, and leave it unfixed this phase; (2) attempt a quick fix first (e.g. extend the per-tool retry guard to cover `search_work_items`, or reword the tool description to disambiguate "work item"), then re-run the affected cases before writing the report.
+- **Coding-agent contribution:** Flagged this as a genuine judgment call rather than picking one — Phase 8's stated job is evidence-gathering, not engineering, and every prior phase's discovered issues were documented before being fixed in a later, deliberate step (not patched silently mid-evaluation) — but a live, reproducible product weakness is exactly the kind of thing worth checking with the user rather than assuming.
+- **Evidence reviewed:** The full trace for every EVAL-011/EVAL-012 error row (tool calls made, or not, before the cutoff); `agent/__init__.py`'s `MAX_TOOL_CALLS`/`SEARCH_RETRY_LIMIT` constants and where the per-tool guard is scoped.
+- **Decision and owner:** Option 1 — the user chose it directly via `AskUserQuestion` ("Document as-is").
+- **Consequences or follow-up:** Recorded in `EVALUATION_REPORT.md`'s Phase 8 section, Failure Analysis, and Residual Risks, including the honest caveat that one of the two failure sub-patterns isn't fully understood yet. Left as an open item for a later phase, not silently patched.
+- **Status:** Accepted
+
+### Decision: Hand-corrected verdicts are written back into `evaluation_results.json`, not just into the report
+
+- **Phase:** 8 — Comparative evaluation
+- **Context:** The harness's automatic `_verdict()` first pass is explicitly documented (in `run.py`'s own docstring) as needing manual review before being trusted. The hand review found real corrections (e.g. EVAL-006's injection-resistance cases were auto-scored `Fail` on the wrong yardstick; EVAL-011's error rows were auto-scored `Partial` via a vacuous truth). `pages/evaluation.py` reads the same JSON file directly.
+- **Options considered:** (1) keep the raw harness output in the JSON file and only apply corrections in the prose written into `EVALUATION_REPORT.md`; (2) apply the same corrections directly to `evaluation_results.json` (in place) so the file, the report, and the live dashboard all agree.
+- **Coding-agent contribution:** Chose option 2 specifically so the dashboard wouldn't visibly contradict the written report (e.g. showing 9 raw `Fail`s in a chart while the report explains a hand-corrected 8) — verified the corrected tallies (25 Pass / 7 Partial / 8 Fail / 4 N/A) match exactly between the JSON, the report's comparison table, and the live dashboard screenshot.
+- **Evidence reviewed:** The full 44-row trace/citation dump for every corrected row (documented per-case in `EVALUATION_REPORT.md`'s Phase 8 section).
+- **Decision and owner:** Option 2 — decided by the coding agent; a data-consistency choice, not a product tradeoff needing user input.
+- **Consequences or follow-up:** `evaluation_results.json` now carries `hand_reviewed: true` and a `hand_review_note` field pointing back to the report's reasoning, so a future reader of the raw JSON isn't misled into thinking it's the harness's untouched first pass.
+- **Status:** Accepted
