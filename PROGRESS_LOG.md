@@ -120,7 +120,10 @@ M deliverables/DECISIONS.md                       (7 new decisions total: closur
 M deliverables/ACCESS_MATRIX.md                   (citation recheck and pre-execution identity recheck both marked done; confirmed live through the agent, not just direct tool calls)
 ```
 
-Not yet committed (this session, Phase 7 — full product experience, still on `phase3-4-baseline-live-github`):
+Committed on branch `phase3-4-baseline-live-github` (later renamed
+`sv-claude-session-DNM`, then `sv-claude-session_DNM-DND`) at `d4c89bb`
+("Complete Phase 7 (full product experience) and Phase 8 (comparative
+evaluation)"):
 
 ```
 M app.py                                          (agent-backed chat, identity-switch history reset, system-status sidebar + resync button, pending-actions approval panel, status banners, conditional citation links, feedback control)
@@ -128,25 +131,17 @@ M src/company_assistant/api.py                    (agent-backed /ask, new /statu
 M src/company_assistant/agent/__init__.py         (ModelRetryMiddleware added, then narrowed to exclude ModelRateLimitError from retry)
 M src/company_assistant/models.py                 (Answer.answer_id; new Feedback/FeedbackRating/FeedbackReason)
 A src/company_assistant/feedback.py               (record_feedback/list_feedback — JSONL under data/feedback/, git-ignored)
-M deliverables/EVALUATION_REPORT.md               (new Phase 7 section: live browser + TestClient evidence, both live-testing findings)
-M deliverables/DECISIONS.md                       (5 new decisions: ModelRetryMiddleware + retry_on narrowing, approve-triggers-execute, feedback-as-JSONL, identity-switch history clearing)
-```
-
-Not yet committed (this session, Phase 8 — comparative evaluation, still on
-`phase3-4-baseline-live-github`):
-
-```
 A src/company_assistant/evaluation/run.py         (harness: runs all 12 cases through 3 variants, writes data/generated/evaluation_results.json)
 A pages/evaluation.py                             (Streamlit multipage dashboard: Pass/Partial/Fail/N/A by category, coverage/latency by variant, feedback counts, unresolved-failures table)
-M deliverables/EVALUATION_REPORT.md               (Thresholds table filled in; new Phase 8 section; Scenario Results, Product and Operational Evidence, Failure Analysis, and Residual Risks all filled in — Release Recommendation deliberately left for Phase 10; Product Evaluated section corrected — model/version/date fields were stale since Phase 6/7)
-M deliverables/DECISIONS.md                       (5 new decisions: 3-variant comparison scope, live-UI feedback seeding, document-not-fix the tool-call-limit finding, hand-corrected verdicts written back into the results JSON)
+M deliverables/EVALUATION_REPORT.md               (new Phase 7 section; Thresholds table; new Phase 8 section; Scenario Results, Product and Operational Evidence, Failure Analysis, Residual Risks all filled in — Release Recommendation deliberately left for Phase 10)
+M deliverables/DECISIONS.md                       (10 new decisions across Phase 7/8)
 ```
 
 `data/generated/evaluation_results.json` and `data/feedback/feedback.jsonl`
 are both git-ignored (generated/local state), not part of this list.
 
-Not yet committed (this session, Phase 9 — Docker packaging, still on
-`sv-claude-session-DNM`):
+Committed on branch `sv-claude-session-DNM` at `855ecd1` ("Complete Phase 9
+(Docker packaging)"):
 
 ```
 A Dockerfile                  (single shared image; uv sync in two layers for caching)
@@ -158,6 +153,30 @@ M README.md                    (new "Run with Docker" step)
 M deliverables/EVALUATION_REPORT.md  (Container startup evidence bullet filled in)
 M deliverables/DECISIONS.md    (2 new decisions: compose-services-not-multiprocess, CPU-only torch pin)
 ```
+
+Committed on branch `sv-claude-session_DNM-DND` at `ab1ce2d` ("Add
+Northstar logo asset"):
+
+```
+A material/northstar-logo-256.png   (the user's own asset, added outside this session's own work — committed as-is on request)
+```
+
+Not yet committed (this session, post-Phase-9 fixes and UI/UX polish, still
+on `sv-claude-session_DNM-DND`):
+
+```
+M src/company_assistant/tools/knowledge.py   (search_work_items/search_company_knowledge docstrings reworded — the EVAL-011/012 tool-routing fix)
+M src/company_assistant/agent/__init__.py    (per-tool retry cap mirrored onto search_work_items; answer_with_agent gained an optional on_step callback for live progress)
+M app.py                                     (full main-area restructuring: 4 persistently-boxed sections — user selection, queue, conversation, plus the always-visible title — with explicit empty-state placeholders instead of blank space; role badge moved from a separate box into a CSS overlay embedded in the chat input itself, left of the send button, after position:sticky proved structurally incompatible with Streamlit's per-element wrapper layout; consistent visible border on the employee selector; Northstar logo next to the title; progressive st.status() feedback replacing the old static spinner)
+M docker-compose.yml                         (third named volume, generated_data, for data/generated/ — the evaluation dashboard had no persistent location in Docker until this)
+M Dockerfile                                 (found and fixed while rebuilding for this handoff: material/ was never copied into the image, so the logo crashed the containerized app — COPY material/ material/ added)
+M deliverables/EVALUATION_REPORT.md          (tool-routing fix + latency-UI fix recorded in Failure Analysis/Usability)
+M deliverables/DECISIONS.md                  (4 new decisions: tool-routing fix, progressive-feedback-not-round-trip-reduction, and this entry's own UI restructuring + chat-input badge overlay)
+```
+
+Rebuilt and verified in Docker (not just the local dev server) before this
+commit — see "Next Immediate Step" below for what that verification found
+and fixed.
 
 ## Planned Post-Phase-8 Work: Packaging Experiment (Phases 9/10)
 
@@ -205,16 +224,26 @@ manifests (Deployment, Service) plus a Traefik `IngressRoute` for
 - ~~**Groq's daily token quota (200k TPD)**~~ — hit again at the start of Phase 8 (a "new" key in the same org didn't reset it; confirmed by comparing organization IDs in the error payload). A genuinely different-org key resolved it for this session. Residual risk, not fully closed: rotating keys should never be assumed to reset the quota without confirming the org differs, and any future full comparative run should still budget for pacing across more than one day or a paid tier.
 - ~~**New from Phase 7: citation-link rendering not re-verified after the `retry_on` fix**~~ — still open; not re-checked in Phase 8 either (no citation-bearing answer with an `http` source_path happened to come up in this phase's live checks). Low risk, unchanged assessment.
 - **New from Phase 7, still open:** FastAPI's `/ask` accepts `conversation_history` but nothing currently exercises multi-turn conversation through it — only Streamlit drives real conversations today.
-- **New from Phase 8:** tool-routing failures on ambiguous phrasing (EVAL-011/012) — a real, reproducible weakness where the agent hits its global tool-call ceiling instead of answering. One cause (a wrong-tool retry loop, unguarded by the per-tool retry cap) is understood; a second sub-pattern (stopping after 0–1 tool calls with the same message) is not. Documented, not fixed, per the user's explicit choice — see `EVALUATION_REPORT.md`'s Phase 8 section and Failure Analysis.
+- ~~**Tool-routing failures on ambiguous phrasing (EVAL-011/012)**~~ — fixed post-Phase-9: reworded the colliding `search_work_items`/`search_company_knowledge` docstrings and mirrored the existing per-tool retry cap onto `search_work_items`. Re-verified live against the exact failing case (fixed) and a regression spot-check (clean). See `DECISIONS.md`. The *other* sub-pattern (0–1 tool calls before `structured is None`) is now better evidenced as unrelated Groq provider flakiness (reproduced live on a normally-passing case, moments after that same question succeeded via identical code) — still open, but understood to not be a tool-routing issue.
+- **New, post-Phase-9:** per-turn latency's *perceived* wait was fixed (progressive `st.status()` feedback in `app.py`, an optional `on_step` callback on `answer_with_agent`), but actual round-trip time is unchanged by design — the user explicitly deferred reducing the tool-call budget or evaluating a faster model, since either would touch evaluation-sensitive behavior and need a fresh Phase-8-style re-verification pass.
+- ~~**Docker image stale relative to the tool-routing/latency fixes**~~ — rebuilt and recreated; both fixes confirmed present in the running containers (no Groq calls needed for this check).
+- ~~**`data/generated/evaluation_results.json` had no persistent location in Docker**~~ — Phase 9 only volume-mounted `data/index`/`data/feedback`; the evaluation dashboard page showed "No results yet" in a fresh container because of this gap, found while the user was looking at the containerized app. Fixed: added a third named volume (`generated_data` → `/app/data/generated`) in `docker-compose.yml`, mounted in both services; populated once via `docker compose cp` from the host's existing results file. Documented in the compose file's own header comment (how to repopulate it after a volume reset).
 - **New from Phase 8:** the evaluation harness's automatic verdict function has no dedicated branch for `indirect_prompt_injection` (EVAL-006) — it produced a false `Fail` that trace review corrected to `Pass`. Worth a real fix in `run.py` if the harness is reused later.
 - **New from Phase 8:** the Reject action button exists in `app.py` but has only ever been verified via direct function call (Phase 6), never clicked live in the UI.
+- ~~**Docker image stale relative to post-Phase-9 fixes and UI/UX polish**~~ — rebuilt and recreated for this session's handoff. Found and fixed a real bug in the process: `Dockerfile` never copied `material/` into the image, so the newly-added logo crashed the containerized app (`MediaFileStorageError`) the first time it was actually tried in Docker — never surfaced locally since all the UI iteration this session used the local `uv run streamlit run app.py` dev server, not the container. Added `COPY material/ material/`; rebuilt; confirmed live (Playwright, zero exceptions) that the logo, boxed layout, and chat-input badge overlay all render correctly through the container, and that `index_data`/`feedback_data`/`generated_data` all survived the rebuild intact.
+- **New, this session:** the UI restructuring (boxed sections, chat-input badge overlay) is cosmetic-only — verified live but not covered by any automated check, and not evaluation-relevant, so it wasn't re-run through Phase 8's harness. If a future phase changes `app.py` again, re-check the badge overlay CSS (`[data-testid="stChatInput"]::before`) still applies — it targets Streamlit-internal class-free selectors (`data-testid`), not emotion-hashed classes, so it should survive routine Streamlit version bumps, but hasn't been tested against one.
 
 ## Next Immediate Step
 
-Phase 9 (Docker packaging) is fully captured in
-`deliverables/EVALUATION_REPORT.md`'s updated "Container startup evidence"
-bullet and 2 new `DECISIONS.md` entries. Per `AGENTS.md`'s collaboration
-workflow, this needs human review/acceptance before Phase 10 starts.
+Phase 9 (Docker packaging) plus this session's post-Phase-9 fixes (tool
+routing, perceived latency, the `generated_data` volume, and a full UI/UX
+pass — boxed layout sections, logo, role badge embedded in the chat input)
+are committed and verified live through the actual container, not just the
+local dev server. Per `AGENTS.md`'s collaboration workflow, this batch needs
+human review/acceptance before Phase 10 starts — nothing evaluation-relevant
+changed (the routing fix was re-verified against the exact failing case and
+one regression spot-check; everything else is cosmetic), so this should be a
+quick review, not a re-run of Phase 8.
 
 Once accepted: **Phase 10 — Decide and Demonstrate** per
 `05-evaluation-and-release.md`. Complete `deliverables/SHOWCASE.md`, and the
@@ -225,16 +254,20 @@ NiceGUI + k3s/Traefik packaging experiment (`DECISIONS.md`'s "Defer a
 NiceGUI + k3s/Traefik packaging experiment" entry) is next, per the user's
 own confirmed sequencing.
 
-**Housekeeping for whoever resumes this session:** the branch is now
-`sv-claude-session-DNM` (renamed from `phase3-4-baseline-live-github` after
-Phase 8's acceptance — the historical branch name in earlier log entries
-above is correct for the point in time it describes). The Docker compose
-stack from this session's Phase 9 verification is still running locally
-(`docker compose ps` from the repo root); stop it with `docker compose down`
-(add `-v` only to also reset the `index_data`/`feedback_data` volumes).
-Outside Docker: run `uv run python -m company_assistant.database` if
-`data/database/company.db` looks stale, and `python -c "from pathlib import
-Path; from company_assistant.indexing import sync_index;
+**Housekeeping for whoever resumes this session:** the branch is
+`sv-claude-session_DNM-DND` (renamed twice this session — first from
+`phase3-4-baseline-live-github` to `sv-claude-session-DNM` after Phase 8's
+acceptance, then to its current name after Phase 9's — the historical
+branch names in earlier log entries above are each correct for the point in
+time they describe). The Docker compose stack (rebuilt with everything
+through this session) is running locally (`docker compose ps` from the repo
+root); stop it with `docker compose down` (add `-v` only to also reset the
+`index_data`/`feedback_data`/`generated_data` volumes — don't do this
+casually, `generated_data` currently holds the only copy of Phase 8's
+harness results reachable from inside the container). Outside Docker: run
+`uv run python -m company_assistant.database` if `data/database/company.db`
+looks stale, and `python -c "from pathlib import Path; from
+company_assistant.indexing import sync_index;
 print(sync_index(Path('data/raw')))"` to rebuild the semantic index if
 `data/index/` was cleaned or is missing (it's git-ignored, so a fresh
 checkout starts with none).

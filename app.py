@@ -21,6 +21,31 @@ from company_assistant.tools.actions import (
 
 st.set_page_config(page_title="Northstar Assistant", page_icon="N", layout="centered")
 
+# Gives each main-area section a persistent, visible boundary — even when
+# empty — instead of looking like broken/unstructured blank space. Targets
+# st.container(key=...)'s auto-generated `st-key-<key>` wrapper class.
+st.markdown(
+    """
+    <style>
+    .st-key-user-box, .st-key-queue-box, .st-key-conversation-box {
+        background-color: #f0f2f6;
+        border-radius: 0.75rem;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+    }
+    /* The selectbox's own idle-state border is the same color as its
+       background, so it's invisible until focused (when Streamlit turns it
+       red) — inconsistent with the always-visible expander border next to
+       it. Give it the same visible, neutral border the expander already
+       has, only while not focused (leave the focus state untouched). */
+    [data-testid="stSelectbox"] div[role="group"]:not(:focus-within) {
+        border: 1px solid rgba(49, 51, 63, 0.2) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 def _history_messages(messages: list[dict]) -> list[dict]:
     """Turn stored session messages into the role/content shape the agent expects."""
@@ -125,15 +150,29 @@ def render_answer(answer: Answer) -> None:
     render_feedback(answer)
 
 
-st.title("Northstar Internal Assistant")
-st.caption("Permission-aware company knowledge prototype")
+col_logo, col_title = st.columns([1, 6], vertical_alignment="center")
+with col_logo:
+    st.image("material/northstar-logo-256.png", width=64)
+with col_title:
+    st.title("Northstar Internal Assistant")
+    st.caption("Permission-aware company knowledge prototype")
 
-employee_id = st.selectbox(
-    "Fictional employee profile",
-    options=list(EMPLOYEES),
-    format_func=lambda key: f"{EMPLOYEES[key].display_name} - {EMPLOYEES[key].role}",
-)
+ROLE_BADGE_COLORS = {
+    "engineering": ("rgba(28, 131, 255, 0.1)", "rgb(0, 84, 163)"),
+    "customer_success": ("rgba(33, 195, 84, 0.1)", "rgb(21, 130, 55)"),
+    "finance": ("rgba(255, 164, 33, 0.1)", "rgb(226, 102, 12)"),
+    "people_operations": ("rgba(154, 93, 255, 0.1)", "rgb(88, 63, 132)"),
+}
+
+with st.container(key="user-box"):
+    employee_id = st.selectbox(
+        "Fictional employee profile",
+        options=list(EMPLOYEES),
+        format_func=lambda key: EMPLOYEES[key].display_name,
+    )
+
 employee = EMPLOYEES[employee_id]
+role = employee.role
 
 if st.session_state.get("active_employee_id") != employee_id:
     st.session_state.active_employee_id = employee_id
@@ -171,68 +210,118 @@ with st.sidebar:
                 st.error(f"Sync failed: {error}")
 
 pending_proposals = list_pending_proposals()
-with st.expander(f"Pending actions ({len(pending_proposals)})", expanded=bool(pending_proposals)):
-    if not pending_proposals:
-        st.caption("No actions awaiting approval.")
-    for proposal in pending_proposals:
-        with st.container(border=True):
-            st.markdown(f"**{proposal.action_type}** → `{proposal.destination}`")
-            st.caption(f"Requested by {proposal.requested_by} · {proposal.proposal_id}")
-            st.json(proposal.payload)
+with st.container(key="queue-box"):
+    with st.expander(f"Pending actions ({len(pending_proposals)})", expanded=bool(pending_proposals)):
+        if not pending_proposals:
+            st.caption("No actions awaiting approval.")
+        for proposal in pending_proposals:
+            with st.container(border=True):
+                st.markdown(f"**{proposal.action_type}** → `{proposal.destination}`")
+                st.caption(f"Requested by {proposal.requested_by} · {proposal.proposal_id}")
+                st.json(proposal.payload)
 
-            approve_col, reject_col, edit_col = st.columns(3)
-            if approve_col.button("Approve", key=f"approve-{proposal.proposal_id}"):
-                try:
-                    approve_action(proposal.proposal_id, employee)
-                    execute_action(proposal.proposal_id, employee)
-                    st.rerun()
-                except ValueError as error:
-                    st.error(str(error))
-            if reject_col.button("Reject", key=f"reject-{proposal.proposal_id}"):
-                try:
-                    reject_action(proposal.proposal_id, employee)
-                    st.rerun()
-                except ValueError as error:
-                    st.error(str(error))
-            editing_key = f"editing-{proposal.proposal_id}"
-            if edit_col.button("Edit", key=f"edit-toggle-{proposal.proposal_id}"):
-                st.session_state[editing_key] = not st.session_state.get(editing_key, False)
-
-            if st.session_state.get(editing_key):
-                raw_payload = st.text_area(
-                    "Payload (JSON)",
-                    value=json.dumps(proposal.payload, indent=2),
-                    key=f"edit-area-{proposal.proposal_id}",
-                )
-                if st.button("Save edit", key=f"save-edit-{proposal.proposal_id}"):
+                approve_col, reject_col, edit_col = st.columns(3)
+                if approve_col.button("Approve", key=f"approve-{proposal.proposal_id}"):
                     try:
-                        new_payload = json.loads(raw_payload)
-                        edit_action(proposal.proposal_id, new_payload, employee)
-                        st.session_state[editing_key] = False
+                        approve_action(proposal.proposal_id, employee)
+                        execute_action(proposal.proposal_id, employee)
                         st.rerun()
-                    except (json.JSONDecodeError, ValueError) as error:
+                    except ValueError as error:
                         st.error(str(error))
+                if reject_col.button("Reject", key=f"reject-{proposal.proposal_id}"):
+                    try:
+                        reject_action(proposal.proposal_id, employee)
+                        st.rerun()
+                    except ValueError as error:
+                        st.error(str(error))
+                editing_key = f"editing-{proposal.proposal_id}"
+                if edit_col.button("Edit", key=f"edit-toggle-{proposal.proposal_id}"):
+                    st.session_state[editing_key] = not st.session_state.get(editing_key, False)
+
+                if st.session_state.get(editing_key):
+                    raw_payload = st.text_area(
+                        "Payload (JSON)",
+                        value=json.dumps(proposal.payload, indent=2),
+                        key=f"edit-area-{proposal.proposal_id}",
+                    )
+                    if st.button("Save edit", key=f"save-edit-{proposal.proposal_id}"):
+                        try:
+                            new_payload = json.loads(raw_payload)
+                            edit_action(proposal.proposal_id, new_payload, employee)
+                            st.session_state[editing_key] = False
+                            st.rerun()
+                        except (json.JSONDecodeError, ValueError) as error:
+                            st.error(str(error))
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        if message["role"] == "user":
-            st.markdown(message["content"])
-        else:
-            render_answer(Answer.model_validate(message["answer"]))
+conversation_box = st.container(key="conversation-box")
+with conversation_box:
+    if not st.session_state.messages:
+        st.caption("No messages yet — ask a question below to get started.")
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            if message["role"] == "user":
+                st.markdown(message["content"])
+            else:
+                render_answer(Answer.model_validate(message["answer"]))
+
+# Renders the current role as a badge-styled overlay inside the chat input
+# itself (left of the send button) — not a separate section, so it's
+# automatically always visible: it rides along with the input, which
+# Streamlit already pins to the bottom of the page natively. Colors match
+# st.badge()'s own palette exactly (measured live), so it looks like a real
+# badge despite being pure CSS, since st.chat_input has no slot for
+# embedding an actual widget inside it.
+badge_bg, badge_color = ROLE_BADGE_COLORS.get(role, ("rgba(49, 51, 63, 0.1)", "rgb(49, 51, 63)"))
+st.markdown(
+    f"""
+    <style>
+    [data-testid="stChatInput"]::before {{
+        content: "{role}";
+        position: absolute;
+        right: 56px;
+        top: 50%;
+        transform: translateY(-50%);
+        background-color: {badge_bg};
+        color: {badge_color};
+        padding: 0 4px;
+        border-radius: 4px;
+        font-size: 0.875rem;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 10;
+    }}
+    [data-testid="stChatInputTextArea"] {{
+        padding-right: 160px !important;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 if question := st.chat_input("Ask about projects, customers, policies, or work items"):
     history = _history_messages(st.session_state.messages)
     st.session_state.messages.append({"role": "user", "content": question})
-    with st.chat_message("user"):
-        st.markdown(question)
+    with conversation_box:
+        with st.chat_message("user"):
+            st.markdown(question)
 
-    with st.spinner("Thinking..."):
-        answer = answer_with_agent(question, employee, conversation_history=history)
-    with st.chat_message("assistant"):
-        render_answer(answer)
+        with st.chat_message("assistant"):
+            with st.status("Thinking...", expanded=True) as status:
+                answer = answer_with_agent(
+                    question,
+                    employee,
+                    conversation_history=history,
+                    on_step=status.write,
+                )
+                status.update(
+                    label="Done" if answer.status != "error" else "Ran into an error",
+                    state="complete" if answer.status != "error" else "error",
+                    expanded=False,
+                )
+            render_answer(answer)
     st.session_state.messages.append(
         {"role": "assistant", "answer": answer.model_dump(mode="json")}
     )

@@ -8,7 +8,7 @@ is involved at all — same pattern as the lexical baseline.
 import json
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware, ToolCallLimitMiddleware
@@ -116,6 +116,18 @@ def build_agent(
                 run_limit=SEARCH_RETRY_LIMIT,
                 exit_behavior="continue",
             ),
+            # Mirrors the cap above onto search_work_items: found live (Phase
+            # 8, EVAL-011) that a question phrased as a "work item" could
+            # route here instead of search_company_knowledge and retry with
+            # reworded queries until the *global* MAX_TOOL_CALLS ended the
+            # whole run — this cap blocks that one tool early instead,
+            # nudging the model toward a different tool rather than burning
+            # the entire budget on the wrong one. See DECISIONS.md.
+            ToolCallLimitMiddleware(
+                tool_name="search_work_items",
+                run_limit=SEARCH_RETRY_LIMIT,
+                exit_behavior="continue",
+            ),
         ],
         response_format=ToolStrategy(AgentAnswer),
     )
@@ -197,6 +209,31 @@ def _extract_action_proposal(messages: list) -> ActionProposal | None:
     return None
 
 
+_TOOL_STEP_MESSAGES: dict[str, str] = {
+    "search_company_knowledge": "Searching company knowledge...",
+    "search_work_items": "Searching GitHub work items...",
+    "get_support_case": "Looking up the support case...",
+    "list_project_status": "Checking project status...",
+    "propose_action": "Drafting a proposed action...",
+}
+
+
+def _describe_tool_call(call: dict) -> str | None:
+    """A short, human-readable status for one tool call — used only for the
+    optional live-progress callback below. Returns None for the synthetic
+    `AgentAnswer` structured-output call, which isn't a real tool a user
+    should see mentioned.
+    """
+
+    name = call.get("name", "")
+    if name == "AgentAnswer":
+        return None
+    if name == "open_source":
+        source_id = (call.get("args") or {}).get("source_id")
+        return f"Reading {source_id}..." if source_id else "Reading a source..."
+    return _TOOL_STEP_MESSAGES.get(name, f"Calling {name}...")
+
+
 def _trace_from_messages(messages: list) -> list[str]:
     trace = []
     for message in messages:
@@ -215,13 +252,37 @@ def answer_with_agent(
     conversation_history: list[dict] | None = None,
     data_root: Path = Path("data/raw"),
     retrieval_mode: RetrievalMode = "lexical",
+    on_step: Callable[[str], None] | None = None,
 ) -> Answer:
-    """Run the bounded agent and translate its output into the shared Answer contract."""
+    """Run the bounded agent and translate its output into the shared Answer contract.
+
+    `on_step`, when given, is called once per real tool call the agent
+    makes, with a short human-readable status string — lets a caller (only
+    `app.py` today) render live progress instead of one opaque spinner for
+    the whole run. Every other caller (api.py, service.py, the evaluation
+    harness) leaves this unset and gets the exact same behavior and return
+    value as before; nothing about the final `Answer` changes either way.
+    """
 
     agent = build_agent(employee, data_root, retrieval_mode)
     messages = [*(conversation_history or []), {"role": "user", "content": question}]
     try:
-        result = agent.invoke({"messages": messages})
+        if on_step is None:
+            result = agent.invoke({"messages": messages})
+        else:
+            result = {"messages": messages}
+            seen = 0
+            for chunk in agent.stream({"messages": messages}, stream_mode="values"):
+                result = chunk
+                current_messages = chunk.get("messages", [])
+                for message in current_messages[seen:]:
+                    if type(message).__name__ != "AIMessage":
+                        continue
+                    for call in getattr(message, "tool_calls", None) or []:
+                        description = _describe_tool_call(call)
+                        if description:
+                            on_step(description)
+                seen = len(current_messages)
     except Exception as error:
         # A provider-side failure (e.g. the model producing text Groq's
         # structured-output parser can't reconcile with the expected tool

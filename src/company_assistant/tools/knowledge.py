@@ -46,9 +46,12 @@ def build_search_company_knowledge_tool(
         """Search Slack, email, and document evidence for the employee's role.
 
         Use this for general company knowledge questions (policies, release
-        decisions, customer communications). For GitHub issue questions, use
-        search_work_items instead. Permission filtering happens before
-        ranking; forbidden sources never appear in the results.
+        decisions, customer communications, status updates recorded in a
+        document or message — including anything described as a "work item"
+        that is not itself a GitHub issue). For GitHub issue or pull request
+        questions, use search_work_items instead. Permission filtering
+        happens before ranking; forbidden sources never appear in the
+        results.
         """
 
         if retrieval_mode == "semantic":
@@ -84,8 +87,11 @@ def build_search_work_items_tool(
 
         Ranks only against other GitHub issues, never against Slack, email,
         or documents, so a relevant issue can't be pushed out of the results
-        by unrelated evidence in a shared ranking window. Use this for any
-        question about GitHub issues, work items, or their status/owner.
+        by unrelated evidence in a shared ranking window. Use this only for
+        GitHub issues and pull requests. For anything else — a document,
+        Slack message, email, or status update not filed as a GitHub issue —
+        use search_company_knowledge instead, even if the question phrases
+        it as a "work item".
         """
 
         documents, _ = load_all_documents_with_github_status(data_root)

@@ -24,6 +24,7 @@ RUN uv sync --frozen --no-install-project
 COPY src/ src/
 COPY app.py ./
 COPY pages/ pages/
+COPY material/ material/
 COPY data/raw/ data/raw/
 COPY data/database/company.db data/database/company.db
 COPY data/evaluation/cases.json data/evaluation/cases.json

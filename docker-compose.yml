@@ -3,6 +3,13 @@
 # and log stream. `api` performs the one-time index sync on startup; `ui`
 # waits for `api` to report healthy before starting, so a completely fresh
 # `index_data` volume is never written to by both processes at once.
+#
+# `generated_data` (data/generated/) holds the evaluation harness's output —
+# not written by either service automatically (only `evaluation.run` writes
+# it, run manually), but the `evaluation` Streamlit page reads it, so it
+# needs to be a real persistent location too, not left empty in a fresh
+# container. Populate it once via:
+#   docker compose cp data/generated/evaluation_results.json ui:/app/data/generated/evaluation_results.json
 
 services:
   api:
@@ -17,6 +24,7 @@ services:
     volumes:
       - index_data:/app/data/index
       - feedback_data:/app/data/feedback
+      - generated_data:/app/data/generated
     healthcheck:
       test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s
@@ -34,6 +42,7 @@ services:
     volumes:
       - index_data:/app/data/index
       - feedback_data:/app/data/feedback
+      - generated_data:/app/data/generated
     depends_on:
       api:
         condition: service_healthy
@@ -41,3 +50,4 @@ services:
 volumes:
   index_data:
   feedback_data:
+  generated_data:
