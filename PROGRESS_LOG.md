@@ -107,23 +107,13 @@ Full detail in `deliverables/EVALUATION_REPORT.md`. Headline results:
 
 ## Files Changed So Far
 
-Committed history: `358b33b` (initial) → `5eaad98` (Phase 2 day-1 status) → `73bd6df` (commit-hash note) → `950a15b` (Phase 3 evaluation evidence) → `63eae91` (live GitHub repo recorded as committed config) → `129e43f` (Phase 4 live GitHub connector) → `184d166` (Phase 5 managed RAG).
+Committed history: `358b33b` (initial) → `5eaad98` (Phase 2 day-1 status) → `73bd6df` (commit-hash note) → `950a15b` (Phase 3 evaluation evidence) → `63eae91` (live GitHub repo recorded as committed config) → `129e43f` (Phase 4 live GitHub connector) → `184d166` (Phase 5 managed RAG) → `65681ec` (Phase 6: agent, tools, app_state, human approval — includes the `agent.py`/`agent_tools.py`/`app_state.py` additions and the `github.py`/`indexing.py`/`service.py` updates previously listed here as uncommitted).
 
-Uncommitted as of 2026-09-02, end of the Phase 6 session (agent + tools + human approval — awaiting review before committing):
+`pyproject.toml`/`uv.lock` unchanged in Phase 6 — `langchain`, `langchain-groq` were already pinned; `langgraph` (which `langchain.agents.create_agent` is built on) was already a transitive dependency, so no new packages were added. `data/database/app_state.db` (gitignored) now holds real proposal/conversation state locally.
 
-```
-M .gitignore                                   (ignore data/database/app_state.db — real runtime state, not a fixture)
-M PROGRESS_LOG.md                              (this file)
-M deliverables/EVALUATION_REPORT.md            (Phase 6 evidence section added, Scenario Results updated for 6 cases, Release Recommendation updated)
-M src/company_assistant/connectors/github.py   (GitHub issue metadata now includes labels, needed for search_github_issues filtering)
-M src/company_assistant/indexing.py            (DEFAULT_SEMANTIC_INDEX_DIR + get_shared_index moved here from service.py so agent.py can share the same cache)
-M src/company_assistant/service.py             (updated to import the now-shared index cache; no behavior change)
-?? src/company_assistant/agent.py              (new: create_agent wiring, answer_with_agent, decide_action_proposal)
-?? src/company_assistant/agent_tools.py        (new: 6 typed tools, identity closed over per-request)
-?? src/company_assistant/app_state.py          (new: SQLite store for action proposals + conversation history)
-```
+### Reference diagram added post-Phase-6 (2026-09-03)
 
-`pyproject.toml`/`uv.lock` unchanged this phase — `langchain`, `langchain-groq` were already pinned; `langgraph` (which `langchain.agents.create_agent` is built on) was already a transitive dependency, so no new packages were added. `data/database/app_state.db` (gitignored) now holds real proposal/conversation state locally.
+`deliverables/ARCHITECTURE_DIAGRAM.html` — a static, self-contained (no CDN/network dependency) HTML page mapping every module from Phases 1–6: sources → connectors → `CompanyDocument`/`database.py` → permission-aware retrieval → `service.py` → the agent/tools/approval stack → the two interfaces → evaluation/governance. Every box names its real file(s)/function(s); every box and arrow has a hover tooltip. Components that exist but aren't reachable from `app.py`/`api.py` yet — `answer_with_semantic`/`answer_with_hybrid`, all of `agent.py`/`agent_tools.py`/`app_state.py`, and `database.py` itself (confirmed via the actual import graph: only `agent_tools.py` imports it) — are drawn dashed/muted with a "not wired · Phase 7" badge, so it doubles as a visual checklist of exactly what Phase 7 needs to wire in. Not a graded deliverable; a living reference meant to be extended (node/edge data lives in two small arrays at the bottom of the file). Opened via VS Code's Live Preview extension (`ms-vscode.live-server`, installed this session) — right-click the file → "Show Preview" for the rendered, interactive version.
 
 ## Open Items / Not Yet Decided
 
@@ -136,4 +126,4 @@ M src/company_assistant/service.py             (updated to import the now-shared
 
 ## Next Immediate Step
 
-Phase 6 evidence is captured; awaiting human review/acceptance before starting Phase 7 (wire `answer_with_agent`/`decide_action_proposal` into Streamlit and FastAPI, with trust-boundary UI: identity/role, retrieval mode, citations, contradiction/staleness warnings, tool trace, a separate approval control, and feedback capture) — see `AGENTS.md` collaboration workflow step 8.
+Phase 6 is committed (`65681ec`) and accepted. Start Phase 7 in a new session: wire `answer_with_agent`/`decide_action_proposal` into Streamlit and FastAPI, with trust-boundary UI: identity/role, retrieval mode, citations, contradiction/staleness warnings, tool trace, a separate approval control, and feedback capture — see `AGENTS.md` collaboration workflow step 8. `deliverables/ARCHITECTURE_DIAGRAM.html` (dashed/"not wired" nodes) is a ready-made checklist of exactly what needs connecting.
