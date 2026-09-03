@@ -2,7 +2,7 @@
 
 Working notes for continuity across sessions. Not a graded deliverable — the actual submissions live in `deliverables/`. Update this file at the end of each work session so any future session (or teammate) can resume without re-reading the whole conversation history.
 
-## Availability This Week (refreshed 2026-09-03 11:09 CEST)
+## Availability This Week (refreshed 2026-09-04)
 
 Lunch 13:00–13:30 every day.
 
@@ -10,8 +10,8 @@ Lunch 13:00–13:30 every day.
 | --- | --- | --- |
 | Tue 2026-09-01 | until 16:00 | Used — Phases 1–2 (Product Brief, Access Matrix) |
 | Wed 2026-09-02 | 12:00–~17:30 (ran past the planned end) | Phases 3, 4, and 5 all done |
-| **Thu 2026-09-03 (today)** | 10:00–16:00 | Phase 6 (tools + agent), Phase 7 (full product experience), and Phase 8 (comparative evaluation) all completed this session — see Phase Status below |
-| Fri 2026-09-04 | 10:00–12:00 | Planned for Phase 9 (Docker packaging) start |
+| Thu 2026-09-03 | 10:00–~22:00 (ran well past the planned end) | Phase 6, 7, and 8 completed, then Phase 9 (Docker packaging) plus post-Phase-9 fixes, then the NiceGUI + k3s packaging experiment started (pulled forward ahead of Phase 10 at the user's request) |
+| **Fri 2026-09-04 (today)** | — | NiceGUI + k3s packaging experiment finished and deployed live to the user's k3s cluster — see the dedicated section below. **Phase 10 is the only phase left**, not yet started |
 
 Flagged risk (updated): Phases 6, 7, and 8 all landed Thursday. Groq's
 free-tier daily token quota (200k TPD) was hit twice this session — once
@@ -49,7 +49,7 @@ follow-up.
 | 7 — Full product experience | **Done, pending human review** | `app.py`/`api.py` now call `agent.answer_with_agent()` instead of the Phase 3 lexical-only baseline. Streamlit gained: identity-switch history clearing (a self-identified gap in the starter, see below), a system-status sidebar (index freshness, GitHub state, manual "Resync index" button), a "Pending actions" panel with Approve/Reject/Edit buttons calling `tools.actions` directly (never through the agent), status-colored answer banners, conditional clickable citations, a renamed "Tool trace" expander, and a Useful/Not-useful (+ reason) feedback control persisting to a new `feedback.py` module (JSONL under `data/feedback/`). FastAPI gained `/status`, `/feedback`, and `/actions/{id}/approve\|reject\|edit`, plus an agent-backed `/ask`. Verified live in a real browser (no project run skill existed, so a one-off Playwright driver script was used) and via `fastapi.testclient.TestClient` for the API — see `EVALUATION_REPORT.md`'s new Phase 7 section and 5 new `DECISIONS.md` entries. **Two real findings from live testing:** (1) the Phase 0 starter never cleared chat history on identity switch — a real cross-identity evidence-leak vector, fixed; (2) `ModelRetryMiddleware`'s default `retry_on` was retrying Groq's daily-token-quota (TPD) 429s, which can never succeed within a few backed-off seconds — narrowed to exclude `ModelRateLimitError` specifically. Groq's 200k-token daily quota was hit (~99.5% used) partway through live testing; every failure degraded safely to `status="error"`, never a crash or fabrication, confirming the safety design holds under a real production-like failure. |
 | 8 — Comparative evaluation | **Done, pending human review** | New `src/company_assistant/evaluation/run.py` harness ran all 12 cases through the lexical baseline, the shipped lexical+agent default (only the 4 cases Phase 6 hadn't already covered live), and semantic+agent/hybrid+agent (all 12 each) — 44 live result rows, `data/generated/evaluation_results.json`. **Release-blocking metric: 0 forbidden-source leaks across all 44 rows.** Verdicts hand-corrected after reviewing actual stored text/citations/traces (13 corrections vs. the harness's automatic first pass — written back into the JSON so the report and the new `pages/evaluation.py` dashboard never disagree): 25 Pass / 7 Partial / 8 Fail / 4 N/A (structural baseline limitations). **Two operational findings, same session:** (1) a "new" Groq API key issued within the *same organization* as an already-exhausted one does not reset the daily quota — confirmed the hard way; only a genuinely different-org key worked. (2) New product weakness: EVAL-011/012's agent variants repeatedly hit the global 10-tool-call ceiling without answering — one clear cause (a wrong-tool retry loop on `search_work_items`, unguarded by the per-tool retry cap that only covers `search_company_knowledge`), one still-unexplained sub-pattern (stopping after 0–1 tool calls with the same message). Documented as-is per the user's explicit choice, not fixed this phase. `EVALUATION_REPORT.md`'s `Scenario Results`, `Product and Operational Evidence`, `Failure Analysis`, and `Residual Risks` are now filled in (`Release Recommendation` deliberately left for Phase 10). New `pages/evaluation.py` (Streamlit multipage dashboard) verified live in a real browser, zero exceptions. 3 real feedback entries seeded via live UI clicks (2 useful, 1 not-useful+reason), per the user's explicit choice over synthetic data. |
 | 9 — Docker packaging | **Done, pending human review** | One `Dockerfile` shared by two `docker-compose` services (`api` on 8000, `ui` on 8501) — not a multi-process container, so each interface keeps its own restart/log/port and `api` alone owns the one-time startup index sync (gated by a `healthcheck`, so `ui` never races it on a fresh volume). Two named volumes (`index_data`, `feedback_data`) make the persistent locations explicit; `data/database/company.db` and `data/raw/` ship baked into the image (reproducible fixtures). Verified live: fresh-volume `docker compose up --build` → `api` healthy only after real sync (`/status` → 23 indexed sources); containerized Streamlit answered a real question with citations (real browser check, 0 exceptions); restart (`down`/`up`, no `-v`) preserved both the index and a recorded feedback entry; local GitHub fallback confirmed inside the container with `GITHUB_REPOSITORY`/`GITHUB_TOKEN` blanked; confirmed no `.env`/secret reaches the built image. **One real finding, fixed with approval:** default resolution pulled torch's CUDA build (via `sentence-transformers`) transitively, producing an 18.7GB image full of unused GPU libraries — pinned `torch` to the CPU-only wheel index on Linux (`pyproject.toml`/`uv.lock`), shrinking the image to 4.78GB with no behavior change (local macOS dev re-verified working). `README.md` gained a "Run with Docker" step. |
-| 10 — Decide and demonstrate | Not started | |
+| 10 — Decide and demonstrate | Not started | The only phase left. The NiceGUI + k3s packaging experiment (originally planned for *after* this phase) was pulled forward and completed instead — see the dedicated section below and `DECISIONS.md`. |
 
 ## Key Decisions Made Today
 
@@ -178,38 +178,79 @@ Rebuilt and verified in Docker (not just the local dev server) before this
 commit — see "Next Immediate Step" below for what that verification found
 and fixed.
 
-## Planned Post-Phase-8 Work: Packaging Experiment (Phases 9/10)
+Committed on branch `sv-claude-session_DNM-DND` at `7e297ea` ("Add NiceGUI +
+k3s packaging experiment (k3s-exp/), deployed and verified"):
 
-Discussed and agreed with the user ahead of time so it isn't lost; **do not start
-until Phase 8's evaluation report is accepted.** Full rationale in
-`deliverables/DECISIONS.md`.
+```
+M .gitignore                    (*.tar — docker save output is a build artifact, not source)
+M pyproject.toml, uv.lock       (added nicegui)
+A k3s-exp/app.py                (NiceGUI UI + its own bare FastAPI instance)
+A k3s-exp/Dockerfile
+A k3s-exp/docker-compose.yml    (local smoke-test only, not the k3s deploy path)
+A k3s-exp/k8s/{namespace,pvc,deployment,service,ingressroute}.yaml
+A k3s-exp/k8s/README.md         (full build → transfer → import → deploy how-to)
+```
 
-Two deliverables, built together as one experiment:
+See the section right below for the full story, and `deliverables/DECISIONS.md`
+for every material decision behind it.
 
-1. **Local package:** the FastAPI app with NiceGUI mounted directly into it
-   (`ui.run_with(app)`) — one process, one port — replacing the Streamlit
-   interface used through Phase 8. Runnable via `uvicorn` on `127.0.0.1:<port>`.
-2. **Containerized k8s package:** the same single-process app, containerized,
-   deployed via `kubectl` to the user's own k3s cluster. k3s already ships
-   Traefik as its ingress controller, so only Traefik's `IngressRoute` CRD
-   needs to be applied for routing — no separate ingress controller install.
+## NiceGUI + k3s Packaging Experiment — Done (pulled forward ahead of Phase 10)
 
-Agreed constraints:
-- Plain HTTP only — no TLS/cert-manager for this deliverable. The app is
-  reached at `northstar.sv5.de`; Traefik's `IngressRoute` handles the
-  hostname routing, no HTTPS termination needed.
-- Port 80 = Traefik's web entrypoint; port 8080 = Traefik's own dashboard
-  (not the app) — the app itself listens on its own container port behind
-  the `IngressRoute`, never bound to 80/8080 directly.
-- NiceGUI over Streamlit specifically because it collapses the two-port
-  Streamlit+FastAPI topology into one Deployment/Service/IngressRoute.
+Originally planned to start only after Phase 10; the user explicitly pulled
+it forward instead and deferred Phase 10's documentation deliverables
+(`SHOWCASE.md`, `EVALUATION_REPORT.md`'s Release Recommendation, the final
+`DECISIONS.md` entry — all still blank) until after this finished. Full
+rationale and every material decision in `deliverables/DECISIONS.md`
+("NiceGUI + k3s packaging experiment" entries).
 
-When this starts: rewrite `app.py`'s Streamlit UI as NiceGUI pages mounted
-into `api.py`'s existing FastAPI `app`; use `httpx` inside NiceGUI handlers to
-call the app's own `/ask` endpoint over HTTP (clean client/API boundary, not a
-direct Python import); write a Dockerfile for the unified process; write k8s
-manifests (Deployment, Service) plus a Traefik `IngressRoute` for
-`northstar.sv5.de`; write a short `kubectl apply -f` how-to.
+**What shipped, and how it differs from the plan above (deliberate
+corrections made during the work, not drift):**
+
+- **Fully isolated in a new `k3s-exp/` folder, not an in-place rewrite.**
+  `k3s-exp/app.py` (NiceGUI + its own bare `FastAPI()` instance),
+  `k3s-exp/Dockerfile`, `k3s-exp/docker-compose.yml` (local smoke-test
+  only), `k3s-exp/k8s/*.yaml` + `k8s/README.md`. The root `app.py`
+  (Streamlit), `pages/evaluation.py`, `Dockerfile`, and `docker-compose.yml`
+  are completely untouched — Streamlit remains the core interface
+  indefinitely, per `AGENTS.md`'s "alternative interfaces are optional
+  extensions" rule. Only new dependency: `nicegui` in `pyproject.toml`.
+- **Direct Python import, not httpx** — preserves the post-Phase-9
+  progressive per-tool-call chat status (`on_step`), which the original
+  httpx-based plan predates and would have silently lost.
+- **Single combined container, not split ui/api** — considered and
+  declined: doesn't reduce memory on the target VM, and would have broken
+  the progressive-status UX without a new streaming endpoint. 1 replica is
+  a hard requirement (NiceGUI's `ui.run_with()` needs a single worker
+  process; chat/action/feedback state lives in that one process's memory).
+- **Cross-built for the target architecture**: the user's dev machine is
+  `arm64`; the k3s VM is `x86_64`. Built via `docker buildx build --platform
+  linux/amd64 --load`, verified by actually running the image under
+  emulation, not just trusting `docker images`' (misleading, in this case)
+  size output.
+- **No registry** — image reaches the single-node cluster via `docker save`
+  → `scp` → `sudo k3s ctr images import` on the VM (`imagePullPolicy: Never`).
+- **Deploy access: artifacts + a manual `k8s/README.md` how-to, not
+  agent-executed** — this session had no `kubectl`/SSH access to the user's
+  VM; the user's explicit choice when asked was to run the actual deploy
+  steps themselves rather than share cluster access.
+- Dark-themed, deliberately polished UI (large header with logo/title/
+  subtitle, left-drawer nav, left-aligned content, role badge beside the
+  chat input, solid-color buttons) — iterated live with the user over
+  several rounds; see `DECISIONS.md` for the two recurring Quasar/NiceGUI
+  gotchas hit along the way (theme-color CSS overriding plain Tailwind
+  classes; `app.storage.tab` needing `await ui.context.client.connected()`
+  before use).
+
+**Verified end-to-end** (Playwright against the actual running container,
+not just the local dev server) and **deployed to the user's real k3s
+cluster** at `northstar.sv5.de`: chat, pending-actions approve/reject/edit,
+feedback, resync, and the `/evaluation` dashboard, all surviving pod
+restarts and a scale-to-0-and-back cycle. Two real bugs were found and
+fixed live on the deployed cluster (not just locally) — see `DECISIONS.md`:
+an empty-PVC gap on `/evaluation` identical to one already fixed for the
+root app in Phase 9, and a Hugging Face Hub runtime network dependency the
+build-time model bake-in was supposed to remove but didn't (`HF_HUB_OFFLINE`
+wasn't set). Committed at `7e297ea`.
 
 ## Open Items / Not Yet Decided
 
@@ -235,39 +276,42 @@ manifests (Deployment, Service) plus a Traefik `IngressRoute` for
 
 ## Next Immediate Step
 
-Phase 9 (Docker packaging) plus this session's post-Phase-9 fixes (tool
-routing, perceived latency, the `generated_data` volume, and a full UI/UX
-pass — boxed layout sections, logo, role badge embedded in the chat input)
-are committed and verified live through the actual container, not just the
-local dev server. Per `AGENTS.md`'s collaboration workflow, this batch needs
-human review/acceptance before Phase 10 starts — nothing evaluation-relevant
-changed (the routing fix was re-verified against the exact failing case and
-one regression spot-check; everything else is cosmetic), so this should be a
-quick review, not a re-run of Phase 8.
+Phase 9 (Docker packaging), the post-Phase-9 fixes (tool routing, perceived
+latency, the `generated_data` volume, a full UI/UX pass), and the NiceGUI +
+k3s packaging experiment (pulled forward, see the section above) are all
+committed and verified live — the last one on the user's actual k3s cluster,
+not just locally. Nothing evaluation-relevant changed in any of this
+(re-verified against exact failing cases where relevant; everything else is
+either cosmetic or an isolated `k3s-exp/` addition that doesn't touch the
+core app).
 
-Once accepted: **Phase 10 — Decide and Demonstrate** per
-`05-evaluation-and-release.md`. Complete `deliverables/SHOWCASE.md`, and the
+**The only phase left is Phase 10 — Decide and Demonstrate**, per
+`05-evaluation-and-release.md`: complete `deliverables/SHOWCASE.md`, and the
 final decision entry in `deliverables/DECISIONS.md` (the `Release
 Recommendation` section of `EVALUATION_REPORT.md` was deliberately left
-blank through Phase 8 for exactly this). After Phase 10, the user's deferred
-NiceGUI + k3s/Traefik packaging experiment (`DECISIONS.md`'s "Defer a
-NiceGUI + k3s/Traefik packaging experiment" entry) is next, per the user's
-own confirmed sequencing.
+blank through Phase 8 for exactly this). This is genuinely next now — there
+is no more deferred packaging work sitting in front of it.
 
-**Housekeeping for whoever resumes this session:** the branch is
-`sv-claude-session_DNM-DND` (renamed twice this session — first from
-`phase3-4-baseline-live-github` to `sv-claude-session-DNM` after Phase 8's
-acceptance, then to its current name after Phase 9's — the historical
-branch names in earlier log entries above are each correct for the point in
-time they describe). The Docker compose stack (rebuilt with everything
-through this session) is running locally (`docker compose ps` from the repo
-root); stop it with `docker compose down` (add `-v` only to also reset the
-`index_data`/`feedback_data`/`generated_data` volumes — don't do this
-casually, `generated_data` currently holds the only copy of Phase 8's
-harness results reachable from inside the container). Outside Docker: run
-`uv run python -m company_assistant.database` if `data/database/company.db`
-looks stale, and `python -c "from pathlib import Path; from
-company_assistant.indexing import sync_index;
-print(sync_index(Path('data/raw')))"` to rebuild the semantic index if
-`data/index/` was cleaned or is missing (it's git-ignored, so a fresh
-checkout starts with none).
+**Housekeeping for whoever resumes this session (updated 2026-09-04):**
+- Branch is still `sv-claude-session_DNM-DND` (unchanged this session).
+- The root app's Docker Compose stack (`api`+`ui`, from Phase 9) is running
+  locally, untouched by this session's work (`docker compose ps` from the
+  repo root to confirm) — stop with `docker compose down` (add `-v` only to
+  also reset the `index_data`/`feedback_data`/`generated_data` volumes;
+  `generated_data` still holds the only copy of Phase 8's harness results
+  reachable from inside that container).
+- The **k3s-exp experiment is separate**: nothing from it runs locally right
+  now (its own local containers were all stopped after verification), but it
+  **is live and deployed** on the user's real k3s cluster at
+  `northstar.sv5.de`, namespace `northstar`. `k3s-exp/k8s/README.md` has the
+  full redeploy/troubleshooting flow if that needs touching again. Two local
+  images exist from this session's builds (`northstar-assistant-k3s-exp:local`
+  and `:latest`, the latter being the actual `linux/amd64` deployment
+  artifact) — safe to leave or remove, they're not referenced by anything
+  else running locally.
+- Outside Docker: run `uv run python -m company_assistant.database` if
+  `data/database/company.db` looks stale, and `python -c "from pathlib import
+  Path; from company_assistant.indexing import sync_index;
+  print(sync_index(Path('data/raw')))"` to rebuild the semantic index if
+  `data/index/` was cleaned or is missing (it's git-ignored, so a fresh
+  checkout starts with none).
