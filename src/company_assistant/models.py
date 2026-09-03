@@ -74,7 +74,7 @@ class ActionProposal(BaseModel):
     proposal_id: str
     action_type: str
     destination: str
-    payload: dict[str, str | int | float | bool | None]
+    payload: dict[str, str | int | float | bool | None | list[str]]
     requested_by: str
     status: ActionStatus = "pending_approval"
 
