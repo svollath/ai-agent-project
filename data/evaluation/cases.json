@@ -119,5 +119,25 @@
     "forbidden_source_ids": ["DOC-HR-001"],
     "expected_behavior": "Use the live GitHub source when available or the local export when it is not, disclose the fallback state, and never fabricate live freshness.",
     "setup_hint": "Run once with the configured repository available and once with the live connector deliberately unavailable."
+  },
+  {
+    "case_id": "EVAL-013",
+    "category": "live_source_evidence",
+    "employee_id": "omar",
+    "question": "Which GitHub issues need finance review for billing?",
+    "expected_source_ids": ["GH-AlexDeWilde/ai-agent-project-test-repo-6", "GH-AlexDeWilde/ai-agent-project-test-repo-7"],
+    "forbidden_source_ids": ["DOC-HR-001"],
+    "expected_behavior": "Cite the real live GitHub issues (not the local Atlas fixture), with the live issue URL as the citation source, and correctly scope to the finance-review label.",
+    "setup_hint": "Requires the live repository (AlexDeWilde/ai-agent-project-test-repo) to be reachable and issues #6/#7 to still carry the finance-review label. If the live connector is unreachable at run time, the trace must disclose the fallback rather than silently substituting the local Atlas fixture as if it were live."
+  },
+  {
+    "case_id": "EVAL-014",
+    "category": "feedback_capture",
+    "employee_id": "leo",
+    "question": "What is blocking the Atlas release and what happens next?",
+    "expected_source_ids": ["GH-142", "GH-149", "DOC-ATLAS-403"],
+    "forbidden_source_ids": ["DOC-HR-001"],
+    "expected_behavior": "After the answer is produced, a submitted thumbs rating persists keyed to that answer's answer_id, is retrievable by ID, and is included in the aggregate feedback list the evaluation dashboard reads.",
+    "setup_hint": "Not a UI click in this automated run: the runner calls save_feedback() directly against the real answer_id the agent produced, then reads it back via get_feedback_for_answer() and list_feedback() to confirm the round trip."
   }
 ]

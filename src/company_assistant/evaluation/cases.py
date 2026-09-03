@@ -31,6 +31,8 @@ class EvaluationCase(BaseModel):
         "human_approval",
         "index_lifecycle",
         "live_connector_fallback",
+        "live_source_evidence",
+        "feedback_capture",
     ]
     employee_id: str
     question: str
