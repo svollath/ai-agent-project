@@ -208,6 +208,49 @@ cp .env.example .env
 
 Add your Groq API key and, when needed, the GitHub repository settings described in file `04`. Never commit `.env` or expose credentials in prompts, screenshots, traces, or evaluation reports.
 
+### 9. Run with Docker (Phase 9)
+
+Once `.env` exists (step 8), start both interfaces in containers from a clean checkout:
+
+```bash
+docker compose up --build
+```
+
+This builds one image (Python 3.13 + the locked `uv` environment, with the
+semantic-search embedding model pre-downloaded so it never needs network
+access at request time) and runs it as two services:
+
+- Streamlit at `http://localhost:8501`
+- FastAPI at `http://localhost:8000/docs` (health check: `http://localhost:8000/health`, no model call)
+
+Both services bind-mount `./data` from the repository, so the semantic
+index (`data/index/`), the approvals/feedback/conversation store
+(`data/database/app_state.db`), and evaluation results
+(`data/generated/`) persist across `docker compose down`/`up` instead of
+being rebuilt from scratch each time. Secrets (`GROQ_API_KEY`,
+`GITHUB_TOKEN`, `GITHUB_REPOSITORY`) come only from `.env`, which is never
+copied into the image (`.dockerignore`) and is only read at container
+start via `env_file`.
+
+If the container reports permission errors writing to `data/index/` or
+`data/database/`, the container's non-root user (uid 1000) doesn't match
+your host user; run once from the repository root:
+
+```bash
+chmod -R a+rwX data/index data/generated data/database
+```
+
+The live GitHub connector's existing fallback-on-failure behavior is
+unchanged in the container: if `GITHUB_TOKEN` is unset/rate-limited or
+there's no network egress, the app degrades to the local fixture under
+`data/raw/github/` exactly as it does outside Docker, and `Answer.trace`
+still discloses which source was used.
+
+Containerizing does not make this a production-ready deployment —
+authentication, secret rotation, backups, monitoring, provider contracts,
+and source-level authorization are separate, unresolved decisions (see
+`deliverables/DECISIONS.md`).
+
 ## Coding Agent Collaboration
 
 Use Claude Code or Codex through any interface that can access the repository. At the beginning of each project phase, give it the phase objective and ask it to inspect the relevant files before proposing a plan. Let it perform most implementation work, but review its plan, changes, assumptions, and evidence before accepting the result and moving forward.

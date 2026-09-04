@@ -1,0 +1,48 @@
+# Version control and environment
+.git/
+.venv/
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.rumdl_cache/
+.coverage
+htmlcov/
+
+# Generated/runtime data (persists via the docker-compose ./data bind mount
+# instead; see deliverables/DECISIONS.md "Phase 9: Container packaging").
+# data/raw/ and data/database/company.db are NOT excluded -- they ship in
+# the image as the self-contained fixture/fallback.
+data/index/
+data/generated/
+data/database/app_state.db
+data/database/*.db-journal
+data/database/*.db-shm
+data/database/*.db-wal
+
+# Documentation and course material not read by any runtime code
+deliverables/
+assets/
+.claude/
+README.md
+AGENTS.md
+CLAUDE.md
+PROGRESS_LOG.md
+LICENSE
+01-company-context.md
+02-system-design.md
+03-project-description.md
+04-connected-rag-and-agent.md
+05-evaluation-and-release.md
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
