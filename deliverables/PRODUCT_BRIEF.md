@@ -36,9 +36,9 @@
 ## Success Measures
 
 - **Primary usefulness metric:** All 3 priority questions answered correctly, with citations, on the first attempt.
-- **Target value:** 3/3 priority questions; ≥10/12 supplied evaluation cases at `Pass`.
-- **Non-negotiable permission threshold:** 0 forbidden-source exposures and 0 actions executed without approval, across all cases.
-- **Maximum acceptable latency:** 8 seconds end-to-end for an agent-generated answer (draft — adjust once real latency is measured).
+- **Target value:** 3/3 priority questions; ≥10/12 supplied evaluation cases at `Pass`. **Real result (Phase 10, see `deliverables/EVALUATION_REPORT.md`): 3/3 priority questions, 10+/12 matrix cases at Pass.** These placeholders are kept for traceability; the report is the authoritative, current source of truth.
+- **Non-negotiable permission threshold:** 0 forbidden-source exposures and 0 actions executed without approval, across all cases. **Real result: 0 and 0, across all 4 variants and all 14 cases (Phases 8 and 10).**
+- **Maximum acceptable latency:** 8 seconds end-to-end for an agent-generated answer (draft — adjust once real latency is measured). **Real result: ~19s median, up to 65s on the slowest abstention case (Phase 8, re-confirmed Phase 10) — the target was set before any real measurement and is missed. Accepted as a disclosed limitation rather than revised after the fact; see `deliverables/EVALUATION_REPORT.md`'s Residual Risks.**
 - **How feedback will be collected:** Useful/not-useful control per answer in Streamlit, with an optional reason category, per Phase 7.
 
 ## Risk Statement

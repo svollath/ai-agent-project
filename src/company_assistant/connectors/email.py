@@ -44,6 +44,11 @@ def load_emails(folder: Path) -> list[CompanyDocument]:
                 metadata={
                     "from": str(message.get("From", "")),
                     "to": str(message.get("To", "")),
+                    # Same "current" default and vocabulary as the documents
+                    # connector's `status` field (see document.py), so
+                    # compare_sources treats a superseded email the same way
+                    # it already treats an archived document.
+                    "status": str(message.get("X-Status", "current")),
                 },
             )
         )

@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Northstar Internal Assistant — System Architecture (Phases 1–10, Final)</title>
+<style>
+  :root {
+    --bg: #F7F8FA;
+    --panel-bg: #FFFFFF;
+    --text: #172033;
+    --text-muted: #5B6472;
+    --line: #64748B;
+    --band-title: #8A94A6;
+    --border-soft: #E2E6EC;
+
+    --cat-src: #4677A8;    --cat-src-bg: #EEF4FA;
+    --cat-core: #3B8A5A;   --cat-core-bg: #EFF7F1;
+    --cat-agent: #C86445;  --cat-agent-bg: #FCF1EC;
+    --cat-iface: #B77A1F;  --cat-iface-bg: #FBF5E7;
+    --cat-deploy: #1E7F72; --cat-deploy-bg: #EAF5F3;
+
+    --reserved: #6E5FA8;
+    --reserved-bg: #F1EEFA;
+    --reserved-text: #6E5FA8;
+    --reserved-stripe: rgba(110, 95, 168, 0.10);
+
+    --tooltip-bg: #172033;
+    --tooltip-text: #F2F4F8;
+
+    --danger: #B3441E;
+    --caution: #9A7B14;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10141C;
+      --panel-bg: #171D29;
+      --text: #E7ECF3;
+      --text-muted: #99A3B4;
+      --line: #7C8AA0;
+      --band-title: #6E7889;
+      --border-soft: #262E3D;
+
+      --cat-src: #6FA3D6;   --cat-src-bg: #16233A;
+      --cat-core: #6FC290;  --cat-core-bg: #152A1E;
+      --cat-agent: #E3906F; --cat-agent-bg: #2E1D17;
+      --cat-iface: #E2BA6A; --cat-iface-bg: #2B2415;
+      --cat-deploy: #5FC3B3; --cat-deploy-bg: #12251F;
+
+      --reserved: #A79AD9;
+      --reserved-bg: #1F1B2E;
+      --reserved-text: #A79AD9;
+      --reserved-stripe: rgba(167, 154, 217, 0.10);
+
+      --tooltip-bg: #E7ECF3;
+      --tooltip-text: #10141C;
+
+      --danger: #E28259;
+      --caution: #D8B85B;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.45;
+  }
+
+  header {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 36px 24px 8px;
+  }
+  header h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header p.sub { color: var(--text-muted); margin: 0 0 18px; font-size: 14px; max-width: 820px; }
+  header p.meta { color: var(--text-muted); margin: 0 0 18px; font-size: 12.5px; }
+  header p.meta code { background: var(--reserved-bg); padding: 1px 5px; border-radius: 4px; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    padding: 14px 16px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .legend .item { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .legend .swatch { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+  .legend .line-sample { width: 26px; height: 0; border-top-width: 2px; flex: none; }
+  .legend .line-solid { border-top: 2px solid var(--line); }
+  .legend .line-reserved { border-top: 2px dashed var(--reserved); }
+  .legend .line-dotted { border-top: 2px dotted var(--text-muted); }
+  .legend .cat-src .swatch { background: var(--cat-src-bg); border: 1.5px solid var(--cat-src); }
+  .legend .cat-core .swatch { background: var(--cat-core-bg); border: 1.5px solid var(--cat-core); }
+  .legend .cat-agent .swatch { background: var(--cat-agent-bg); border: 1.5px solid var(--cat-agent); }
+  .legend .cat-iface .swatch { background: var(--cat-iface-bg); border: 1.5px solid var(--cat-iface); }
+  .legend .cat-deploy .swatch { background: var(--cat-deploy-bg); border: 1.5px solid var(--cat-deploy); }
+  .legend .cat-reserved .swatch {
+    background-color: var(--reserved-bg);
+    background-image: repeating-linear-gradient(135deg, var(--reserved-stripe) 0 4px, transparent 4px 9px);
+    border: 1.5px dashed var(--reserved);
+  }
+
+  #diagram-wrap {
+    position: relative;
+    max-width: 1280px;
+    margin: 18px auto 60px;
+    padding: 10px 24px 10px;
+  }
+  svg#edges {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    z-index: 1;
+  }
+  .band {
+    position: relative;
+    z-index: 2;
+    margin: 0 0 92px;
+  }
+  .band:last-child { margin-bottom: 0; }
+  .band-title {
+    text-align: center;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--band-title);
+    margin-bottom: 4px;
+  }
+  .band-subtitle {
+    text-align: center;
+    font-size: 10.5px;
+    font-style: italic;
+    color: var(--text-muted);
+    margin-bottom: 34px;
+  }
+  .band-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 30px 40px;
+  }
+
+  .node {
+    position: relative;
+    background: var(--panel-bg);
+    border: 1.6px solid var(--line);
+    border-radius: 9px;
+    padding: 12px 16px;
+    min-width: 164px;
+    max-width: 228px;
+    text-align: center;
+    cursor: help;
+    box-shadow: 0 1px 2px rgba(20, 25, 40, 0.05);
+  }
+  .node .t { font-size: 12.5px; font-weight: 650; margin-bottom: 2px; }
+  .node .f {
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--text-muted);
+    word-break: break-word;
+  }
+  .node.small { min-width: 130px; padding: 9px 13px; }
+  .node.small .t { font-size: 11.5px; }
+  .node.small .f { font-size: 10px; }
+
+  .node.cat-src   { border-color: var(--cat-src);   background: var(--cat-src-bg); }
+  .node.cat-core  { border-color: var(--cat-core);  background: var(--cat-core-bg); }
+  .node.cat-agent { border-color: var(--cat-agent); background: var(--cat-agent-bg); }
+  .node.cat-iface { border-color: var(--cat-iface); background: var(--cat-iface-bg); }
+  .node.cat-deploy { border-color: var(--cat-deploy); background: var(--cat-deploy-bg); }
+
+  .node.live {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-agent) 22%, transparent), 0 1px 2px rgba(20, 25, 40, 0.05);
+  }
+
+  .node.reserved {
+    border-style: dashed;
+    border-color: var(--reserved) !important;
+    background-color: var(--reserved-bg) !important;
+    background-image: repeating-linear-gradient(135deg, var(--reserved-stripe) 0 5px, transparent 5px 11px);
+  }
+  .node.reserved .t, .node.reserved .f { color: var(--reserved-text); }
+  .node.reserved::after {
+    content: attr(data-status);
+    position: absolute;
+    top: -9px;
+    right: -8px;
+    background: var(--reserved-bg);
+    border: 1px dashed var(--reserved);
+    color: var(--reserved-text);
+    font-size: 8.5px;
+    line-height: 1.4;
+    padding: 1px 5px;
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+  .node.badge::before {
+    content: attr(data-badge);
+    position: absolute;
+    left: 50%;
+    bottom: -9px;
+    transform: translateX(-50%);
+    background: var(--panel-bg);
+    border: 1px solid var(--border-soft);
+    color: var(--text-muted);
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 7px;
+    white-space: nowrap;
+  }
+  .node.badge.hot::before {
+    background: var(--cat-agent-bg);
+    border-color: var(--cat-agent);
+    color: var(--cat-agent);
+    font-weight: 650;
+  }
+  .node.external .t::after { content: " 🌐"; }
+
+  .callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    max-width: 580px;
+    margin: 20px auto 0;
+    padding: 12px 16px;
+    border: 1.4px dashed var(--danger);
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--danger) 8%, var(--panel-bg));
+    font-size: 12px;
+    color: var(--text);
+  }
+  .callout.caution {
+    border-color: var(--caution);
+    background: color-mix(in srgb, var(--caution) 10%, var(--panel-bg));
+    margin-top: 32px;
+  }
+  .callout .icon { font-size: 15px; line-height: 1.3; }
+  .callout b { color: var(--danger); }
+  .callout.caution b { color: var(--caution); }
+
+  .edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: all; cursor: help; }
+  .edge-line { fill: none; stroke: var(--line); stroke-width: 1.6; }
+  .edge-line.reserved { stroke: var(--reserved); stroke-dasharray: 2 3 7 3; opacity: 0.9; }
+  .edge-line.dotted { stroke-dasharray: 1.5 3.5; opacity: 0.75; stroke-width: 1.3; }
+  .edge-line.hot { stroke: var(--cat-agent); stroke-width: 2.4; opacity: 1; }
+
+  .edge-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    background: var(--bg);
+    color: var(--text-muted);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: auto;
+    cursor: help;
+    z-index: 3;
+    border: 1px solid transparent;
+  }
+  .edge-label:hover { color: var(--text); border-color: var(--border-soft); background: var(--panel-bg); }
+
+  #tooltip {
+    position: fixed;
+    max-width: 320px;
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    font-size: 12.5px;
+    line-height: 1.45;
+    padding: 9px 12px;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.08s ease;
+    z-index: 50;
+  }
+  #tooltip.show { opacity: 1; }
+  #tooltip .tt-file {
+    display: block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    opacity: 0.75;
+    margin-bottom: 4px;
+  }
+
+  footer {
+    max-width: 1280px;
+    margin: 0 auto 60px;
+    padding: 0 24px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  footer a { color: inherit; }
+  footer .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 8px; }
+  @media (max-width: 720px) { footer .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Northstar Internal Assistant — System Architecture</h1>
+  <p class="sub">
+    Every box names the actual module(s) behind it; every arrow and dashed line has a hover tooltip
+    explaining what crosses it. Hover any box or line for detail. Reflects the repository as of
+    <strong>Phase 10</strong> — all 10 phases implemented and evidenced: the agent path scores
+    <strong>12/12 Pass, 0 Partial, 0 Fail</strong> on the full comparative-evaluation matrix, both
+    interfaces are containerized, and the final release recommendation is
+    <strong>Demonstrate with explicit limitations</strong>.
+  </p>
+  <p class="meta">
+    Source of truth: <code>AGENTS.md</code>, <code>PROGRESS_LOG.md</code>,
+    <code>deliverables/EVALUATION_REPORT.md</code>, <code>deliverables/DECISIONS.md</code>, and the
+    modules under <code>src/company_assistant/</code>. Edit this file directly to extend the diagram —
+    add a <code>&lt;div class="node"&gt;</code> to a band for a new module, and an entry to the
+    <code>EDGES</code> array near the bottom for a new relationship. Superseded versions:
+    <code>deliverables/ARCHITECTURE_DIAGRAM_Ph6.html</code> (frozen at Phase 6) and
+    <code>deliverables/ARCHITECTURE_DIAGRAM_Ph7.html</code> (frozen at Phase 7, before the Phase 8
+    evaluation runner/dashboard, Phase 9 containerization, and the Phase 10 fixes below) — both kept
+    for comparison.
+  </p>
+  <div class="legend">
+    <span class="item cat-src"><span class="swatch"></span>Sources &amp; connectors</span>
+    <span class="item cat-core"><span class="swatch"></span>Permissions, retrieval &amp; deterministic service</span>
+    <span class="item cat-agent"><span class="swatch"></span>Agent, tools &amp; approval</span>
+    <span class="item cat-iface"><span class="swatch"></span>Interfaces, evaluation &amp; governance</span>
+    <span class="item cat-deploy"><span class="swatch"></span>Deployment &amp; packaging (Phase 9)</span>
+    <span class="item cat-reserved"><span class="swatch"></span>Evaluation-runner path only — not the live chat path</span>
+    <span class="item"><span class="line-sample line-solid"></span>active today</span>
+    <span class="item"><span class="line-sample line-reserved"></span>evaluation-only / comparison path</span>
+    <span class="item"><span class="line-sample line-dotted"></span>evidence / policy reference, not a runtime call</span>
+    <span class="item">🌐 live network call, local fallback</span>
+    <span class="item">⛔ deliberately no code path (security boundary)</span>
+  </div>
+</header>
+
+<div id="diagram-wrap">
+  <svg id="edges"></svg>
+
+  <!-- BAND 1 — SOURCES -->
+  <section class="band" id="band-1">
+    <div class="band-title">1 · Local &amp; Live Sources</div>
+    <div class="band-row">
+      <div class="node cat-src" id="src_slack" data-tip="Fictional Slack workspace export (JSON). Each message already carries teaching metadata: allowed_roles, confidentiality, channel, timestamp. No status/staleness field exists here — unchanged through Phase 10; see the compare_sources callout below for why that still matters.">
+        <div class="t">Slack export</div><div class="f">data/raw/slack/*.json</div>
+      </div>
+      <div class="node cat-src" id="src_email" data-tip="Fictional RFC 5322 .eml fixtures. Access metadata travels in custom X-Source-ID / X-Access-Roles / X-Confidentiality / X-Occurred-At headers. Phase 10 added a fifth header, X-Status (EMAIL-ACME-301 marked superseded, EMAIL-ACME-302 current), mirroring the Markdown-docs connector's status vocabulary so compare_sources can finally see a real date conflict between two emails — closing the EVAL-003 gap open since Phase 7. Slack still carries no such field.">
+        <div class="t">Email export</div><div class="f">data/raw/email/*.eml</div>
+      </div>
+      <div class="node cat-src" id="src_docs" data-tip="Policy/runbook-style Markdown docs with YAML front matter (source_id, owner, effective_at, status, allowed_roles, confidentiality). The 'status: current/archived' field here is what originally powered compare_sources's staleness warnings; Phase 10 extended the same vocabulary to email.">
+        <div class="t">Markdown docs</div><div class="f">data/raw/documents/*.md</div>
+      </div>
+      <div class="node cat-src" id="src_gh_local" data-tip="Local fixture used whenever the live API call fails or is unreachable. Carries the fictional Atlas issue numbers (GH-142, GH-149, ...) the fixed evaluation cases depend on. Also the pinned corpus the Phase 8 evaluation runner forces every non-EVAL-013 case onto, so results don't drift with the live repo's real state.">
+        <div class="t">GitHub fallback export</div><div class="f">data/raw/github/*.json</div>
+      </div>
+      <div class="node cat-src external" id="src_gh_live" data-tip="Real, paginated REST call to the committed live demo repo (AlexDeWilde/ai-agent-project-test-repo). Tried first on every request; any network error, non-200 response, or malformed payload raises LiveFetchError and falls back to the local export instead of fabricating evidence. Phase 8 added a fine-grained, Issues-read-only GITHUB_TOKEN after hitting the unauthenticated 60-req/hour rate limit during repeated testing.">
+        <div class="t">Live GitHub API</div><div class="f">api.github.com/repos/…/issues</div>
+      </div>
+      <div class="node cat-src" id="src_db" data-tip="Reproducible SQLite fixture: customers, projects, support_cases tables. Recreated by 'python -m company_assistant.database'. Carries no role metadata itself — every access check happens in code, not in the schema.">
+        <div class="t">Business database</div><div class="f">data/database/company.db</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BAND 2 — CONNECTORS -->
+  <section class="band" id="band-2">
+    <div class="band-title">2 · Source Connectors — src/company_assistant/connectors/</div>
+    <div class="band-row">
+      <div class="node cat-src" id="conn_slack" data-tip="Parses every *.json file in the Slack export folder into normalized CompanyDocuments, validating role/confidentiality metadata per message.">
+        <div class="t">slack.py</div><div class="f">load_slack_messages()</div>
+      </div>
+      <div class="node cat-src" id="conn_email" data-tip="Parses each .eml with Python's own email.policy parser, extracts the plain-text body, and reads governance metadata from X- headers. Phase 10: also reads X-Status into metadata['status'] (defaulting to 'current' when the header is absent, the same default the documents connector already used), which is what let compare_sources start detecting stale email pairs.">
+        <div class="t">email.py</div><div class="f">load_emails()</div>
+      </div>
+      <div class="node cat-src" id="conn_docs" data-tip="Loads each Markdown file's YAML front matter via python-frontmatter and validates it against a typed DocumentMetadata model before building a CompanyDocument.">
+        <div class="t">documents.py</div><div class="f">load_documents()</div>
+      </div>
+      <div class="node cat-src" id="conn_gh" data-tip="Tries the live GitHub REST API first (pagination via the Link header, PRs excluded); on any LiveFetchError, falls back to the local export. Live issues get role visibility from a label policy: 'finance-review' → finance, 'customer-impact' → customer_success, everything else defaults to engineering-only.">
+        <div class="t">github.py</div><div class="f">load_github_issues_connected()</div>
+      </div>
+      <div class="node cat-src small" id="conn_common" data-tip="Shared validation used by all four connectors: parse_roles() rejects unknown roles and requires at least one role (deny-by-default at parse time); parse_confidentiality() only accepts 'internal' or 'restricted'.">
+        <div class="t">common.py</div><div class="f">parse_roles() / parse_confidentiality()</div>
+      </div>
+      <div class="node cat-core live" id="db_reader" data-tip="Narrow, parameterized read-only lookups directly on company.db. Own inline role allowlist per table (SUPPORT_CASE_ALLOWED_ROLES, PROJECT_ALLOWED_ROLES) — deny-by-default, returns None/[] rather than an error, so a denied role can't infer a record exists. Bypasses the CompanyDocument path entirely. Reachable end-to-end from a real question since Phase 7: UI → agent → lookup_support_case()/lookup_project_status() tools → here.">
+        <div class="t">database.py</div><div class="f">get_support_case() / list_project_status()</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BAND 3 — NORMALIZED CONTRACT -->
+  <section class="band" id="band-3">
+    <div class="band-title">3 · Normalized Contracts</div>
+    <div class="band-row">
+      <div class="node cat-src" id="reg" data-tip="Aggregates all four connectors above into one CompanyDocument list, plus a source_notes list disclosing connector state (e.g. which GitHub source — live or fallback — was actually used) so callers can surface it in Answer.trace.">
+        <div class="t">registry.py</div><div class="f">load_all_documents()</div>
+      </div>
+      <div class="node cat-src" id="model_doc" data-tip="Shared normalized record every connector converts into: source_id, source_type, title, content, source_path, allowed_roles, confidentiality, author, occurred_at, metadata. Retrieval and permissions never see source-specific formats.">
+        <div class="t">models.py</div><div class="f">CompanyDocument</div>
+      </div>
+      <div class="node cat-agent small live" id="model_answer" data-tip="answer_id (stable per-turn ID, auto-generated so every Answer gets one for free) and warnings: list[str], populated from compare_sources findings. Through Phase 8 this only covered the documents connector's status field; Phase 10 extended coverage to email (EVAL-003 now Pass, 2/3 → 3/3 on manual re-runs — improved, not guaranteed). Slack still uncovered by design; no evaluation case requires it.">
+        <div class="t">models.py</div><div class="f">Answer.answer_id / .warnings</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BAND 4 — PERMISSIONS + RETRIEVAL -->
+  <section class="band" id="band-4">
+    <div class="band-title">4 · Permission-Aware Retrieval</div>
+    <div class="band-row">
+      <div class="node cat-core small" id="perm" data-tip="Deny-by-default role membership check: keeps only documents where employee.role is in document.allowed_roles. Model-free, called directly inside lexical_search(). One of three independent enforcement points in this system — the others live inside indexing.py's Chroma filter and database.py's per-table allowlists.">
+        <div class="t">security/permissions.py</div><div class="f">filter_permitted()</div>
+      </div>
+      <div class="node cat-core badge" data-badge="🔒 filter_permitted()" id="lex" data-tip="Token-overlap ranking over permitted documents only. Still live on every chat request: hybrid_search() (the agent's search tool) fuses this in via reciprocal rank fusion. Standalone, through answer_with_baseline(), it's the Phase 8 evaluation runner's 'lexical' variant — still the fastest and highest-recall of the three deterministic modes there (14/15 vs 12/15 semantic, 13/15 hybrid on the pinned corpus, re-confirmed in Phase 10's fresh run).">
+        <div class="t">retrieval.py</div><div class="f">lexical_search()</div>
+      </div>
+      <div class="node cat-core live" id="idx" data-tip="Owns the persistent Chroma collection at data/index/semantic plus a content-hash manifest (manifest.json) that upserts changed/new documents and deletes removed ones without re-embedding the rest. Each chunk is tagged with a boolean role_&lt;role&gt; metadata field at index time. Backs a module-level read_last_indexed() that both interfaces read directly (no embedding-model load) for an always-visible 'last indexed' status. Phase 9 pre-downloads this index's embedding model at container build time so it's never fetched over the network at request time.">
+        <div class="t">indexing.py</div><div class="f">SemanticIndex (chunk, sync, rebuild)</div>
+      </div>
+      <div class="node cat-core live badge" data-badge="🔒 Chroma filter + recheck" id="sem" data-tip="Queries SemanticIndex.query(), which applies a Chroma metadata 'where' filter for the employee's role before the ANN search runs. Every result is then rechecked against the *current* CompanyDocument.allowed_roles (not the possibly-stale indexed copy) before it can become a citation. Reachable end-to-end since Phase 7: every hybrid_search() call from the agent's live chat path fuses one of these in.">
+        <div class="t">retrieval.py</div><div class="f">semantic_search()</div>
+      </div>
+      <div class="node cat-core live" id="hyb" data-tip="Reciprocal rank fusion (k=60) over lexical_search() + semantic_search() rankings — sidesteps reconciling token-overlap scores with cosine distances by only using each list's rank order. Backs the agent's search_company_knowledge tool — the live chat path for both interfaces since Phase 7. Inherits both permission checks.">
+        <div class="t">retrieval.py</div><div class="f">hybrid_search()</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BAND 5 — DETERMINISTIC SERVICE -->
+  <section class="band" id="band-5">
+    <div class="band-title">5 · Deterministic Service Layer</div>
+    <div class="band-subtitle">not the live chat path since Phase 7 — now the real backend the Phase 8 evaluation runner calls on every comparison run</div>
+    <div class="band-row">
+      <div class="node cat-core reserved" data-status="Evaluation-runner path, not live chat" id="svc_base" data-tip="Loads documents, runs lexical_search, and returns extractive evidence — no model call at all. Was the only path reachable from app.py/api.py through Phase 6; since Phase 7 neither interface's live chat calls this. Instead, evaluation/runner.py calls it directly as the 'lexical' variant on every real Phase 8/10 comparison run — 14/15 recall on the pinned corpus, fastest, zero forbidden exposure, still live evidence rather than a one-time measurement.">
+        <div class="t">service.py</div><div class="f">answer_with_baseline()</div>
+      </div>
+      <div class="node cat-core reserved" data-status="Evaluation-runner path, not live chat" id="svc_sem_hyb" data-tip="Built and evidenced in Phase 5 (index sync + retrieval + Answer assembly for both modes), verified directly and compared against the baseline. Never wired into either interface's live chat, by product decision — instead these are the evaluation runner's 'semantic'/'hybrid' variants, exercised on every real Phase 8/10 comparison run for the dashboard's pass/partial/fail and latency charts.">
+        <div class="t">service.py</div><div class="f">answer_with_semantic() / answer_with_hybrid()</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BAND 6 — AGENT / TOOLS / APPROVAL -->
+  <section class="band" id="band-6">
+    <div class="band-title">6 · Agent, Tools &amp; Human Approval</div>
+    <div class="band-subtitle">the live chat path for both interfaces since Phase 7</div>
+    <div class="band-row">
+      <div class="node cat-agent live" id="tools" data-tip="6 typed LangChain tools, rebuilt fresh per request with employee identity closed over (never a model-fillable argument): search_company_knowledge, search_github_issues, lookup_support_case, lookup_project_status, compare_sources, propose_action. Phase 10 fixed two real search_github_issues bugs: the state filter's default silently narrowed to 'open' (missing a closed issue, EVAL-013), now defaults to 'all'; and the label filter was case-sensitive, now compared case-insensitively.">
+        <div class="t">agent_tools.py</div><div class="f">build_tools() — 6 StructuredTools</div>
+      </div>
+      <div class="node cat-agent live badge hot" data-badge="🟢 live chat path" id="agent_run" data-tip="Groq-backed (ChatGroq, openai/gpt-oss-20b) LangChain create_agent runtime, capped at 4 tool calls (ToolCallLimitMiddleware). Only cites a source if it's both something a real tool call surfaced AND something the model's own final text actually mentions, then rechecks every citation against the live CompanyDocument again. Both app.py and api.py call this directly — it is the sole live chat path for both interfaces. Phase 10 strengthened the system prompt: the model must call compare_sources on every source it's weighing, including ones it already suspects are outdated, and must still cite a source compare_sources flags as superseded rather than silently dropping it — closing the EVAL-003 gap end to end, not just at the tool-artifact level.">
+        <div class="t">agent.py</div><div class="f">answer_with_agent()</div>
+      </div>
+      <div class="node cat-agent live" id="approve" data-tip="Approve / reject / edit one pending proposal. A plain function, never a tool the model can call. Rechecks identity and permission immediately before the (currently simulated) execution. Callable from a real Streamlit sidebar form and a real FastAPI endpoint (POST /proposals/{id}/decide) — both verified for all outcomes: approve, reject, edit, wrong-employee (403), re-deciding (409). Exercised again in Phase 10's live 7-step demonstration with a real propose → approve → executed cycle.">
+        <div class="t">agent.py</div><div class="f">decide_action_proposal()</div>
+      </div>
+      <div class="node cat-agent live small" id="state" data-tip="SQLite store (action_proposals + conversation_messages tables) separate from the reproducible company.db fixture — holds real, generated runtime state. Streamlit generates one conversation_id per browser session and FastAPI's /ask returns one when the caller omits it. Persisted under data/database/app_state.db (gitignored), and — since Phase 9 — kept across container recreation via the ./data bind mount rather than lost on every docker compose down.">
+        <div class="t">app_state.py</div><div class="f">action_proposals / conversation_messages</div>
+      </div>
+      <div class="node cat-agent live small" id="feedback" data-tip="Persisted useful/not-useful ratings with a fixed reason-category set (missing_source, wrong_answer, stale_evidence, bad_citation, other), keyed by Answer.answer_id so a resubmission upserts rather than duplicates. Backs both interfaces' feedback widgets and EVAL-014's real save/read-back/list round trip, run by evaluation/runner.py on every comparison run and rendered on pages/Evaluation.py.">
+        <div class="t">app_state.py</div><div class="f">feedback (save / list / get_for_answer)</div>
+      </div>
+    </div>
+    <div class="callout">
+      <span class="icon">⛔</span>
+      <span><b>No code path connects them:</b> propose_action() only ever drafts a pending proposal.
+      decide_action_proposal() is called only from a separate, distinct UI/API action — never from inside
+      the agent's own tool-calling loop — so no model output, including text copied from a retrieved
+      document, can ever trigger execution. Unchanged since Phase 6; re-verified over real HTTP and via
+      Streamlit's sidebar form in Phase 7, and again in Phase 10's live 7-step demonstration (a real
+      propose → approve → executed cycle).</span>
+    </div>
+    <div class="callout caution">
+      <span class="icon">⚠</span>
+      <span><b>Fixed in Phase 10 (was an open scope limit through Phase 8):</b> compare_sources's staleness
+      signal reads <code>document.metadata["status"]</code>, which only the Markdown-docs connector
+      populated through Phase 8 — a real, correctly-resolved date conflict between two emails produced no
+      <code>Answer.warnings</code> entry. Phase 10 added the same status vocabulary to the email connector
+      (<code>X-Status</code> header; <code>EMAIL-ACME-301</code> marked <code>superseded</code>) and
+      strengthened the system prompt so the model still cites a source compare_sources flags as superseded
+      instead of silently dropping it. Verified 2/3 → 3/3 on manual re-runs — improved, not guaranteed,
+      the same reliability caveat as propose_action invocation. Slack remains uncovered by design; no
+      evaluation case currently requires it.</span>
+    </div>
+  </section>
+
+  <!-- BAND 7 — COMPARATIVE EVALUATION RUNNER -->
+  <section class="band" id="band-7">
+    <div class="band-title">7 · Comparative Evaluation Runner — Phase 8</div>
+    <div class="band-subtitle">independent of Streamlit per AGENTS.md — the same function backs a script, a test, or the dashboard button</div>
+    <div class="band-row">
+      <div class="node cat-iface live" id="runner" data-tip="Runs all 12 matrix cases across the 4 real variants (lexical/semantic/hybrid/agent — ~12 real Groq calls for the agent variant) plus the EVAL-014 feedback round trip, and carries EVAL-011's index-lifecycle result forward by reference (real Phase 5 evidence, not re-run every pass). THRESHOLDS are locked into this module before any run, so EVALUATION_REPORT.md quotes them rather than restating them. Phase 10 used rescore_results() to reapply a fixed forbidden_access scoring rule (EVAL-005) to already-collected data with zero new model calls — the same fix pattern Phase 8 used for EVAL-006's indirect_prompt_injection scoring bug. rerun_case() re-ran only EVAL-013 after a GitHub token fix in Phase 8, without re-spending Groq quota on the other 11 cases.">
+        <div class="t">evaluation/runner.py</div><div class="f">run_evaluation() / rescore_results() / rerun_case()</div>
+      </div>
+      <div class="node cat-iface small live" id="eval_results" data-tip="Structured per-case, per-variant results (score, latency, tool calls, citations found/missing/forbidden, live-source state) plus the summary counts pages/Evaluation.py renders. Regenerated by run_evaluation()/rerun_case(); never hand-edited. Phase 10's fresh full run: agent 12/12 Pass, 0 Partial, 0 Fail (up from Phase 8's 10/2/0); 0 forbidden-evidence exposures and 0 unapproved actions across every variant, both runs.">
+        <div class="t">results.json</div><div class="f">data/generated/evaluation/results.json (gitignored)</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BAND 8 — INTERFACES -->
+  <section class="band" id="band-8">
+    <div class="band-title">8 · Interfaces</div>
+    <div class="band-row">
+      <div class="node cat-iface live" id="ui_streamlit" data-tip="Employee-profile selector (4 fictional roles, resets conversation_id and chat history on switch) + chat input, calling answer_with_agent(). Renders Answer.warnings as a banner, clickable citation links for live-GitHub sources, an expandable tool trace, a persisted sidebar 'Pending approvals' panel with inline approve/edit/reject forms, thumbs feedback with a fixed reason-category picker, and an always-visible 'last indexed' timestamp.">
+        <div class="t">app.py</div><div class="f">Streamlit chat UI</div>
+      </div>
+      <div class="node cat-iface live" id="ui_api" data-tip="/ask calls answer_with_agent() and returns {conversation_id, answer} — server-generates a conversation_id when the caller omits one, so a stateless client can continue the same conversation. GET /proposals, POST /proposals/{id}/decide, POST /feedback. /health carries last_indexed (read from the manifest directly via read_last_indexed(), so it keeps its 'no model call' contract) — the same endpoint Phase 9's container health check reuses unchanged.">
+        <div class="t">api.py</div><div class="f">FastAPI — /health, /ask, /proposals, /feedback</div>
+      </div>
+      <div class="node cat-iface live" id="ui_eval_dashboard" data-tip="Phase 8 addition, same Streamlit app as app.py (multipage nav). The 'Run evaluation now' button calls run_evaluation() directly — the same function a script or test would use; this page only adds a live st.status() progress view on top, no duplicated scoring logic. Renders the locked-in thresholds table, pass/partial/fail counts and a bar chart by variant, latency by variant, the feedback summary (useful/not-useful/total), and every case's full per-variant detail, read straight from results.json.">
+        <div class="t">pages/Evaluation.py</div><div class="f">Streamlit — Comparative Evaluation dashboard</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BAND 9 — EVALUATION & GOVERNANCE -->
+  <section class="band" id="band-9">
+    <div class="band-title">9 · Evaluation &amp; Governance</div>
+    <div class="band-row">
+      <div class="node cat-iface small" id="eval_cases_json" data-tip="14 fixed scenarios spanning single/cross-source retrieval, conflicting evidence, structured lookup, forbidden access, indirect prompt injection, insufficient evidence, tool failure, follow-up, human approval, index lifecycle, live-connector fallback, live-source evidence (EVAL-013), and feedback capture (EVAL-014, both new in Phase 8).">
+        <div class="t">cases.json</div><div class="f">data/evaluation/cases.json</div>
+      </div>
+      <div class="node cat-iface small" id="eval_cases_py" data-tip="Typed pydantic loader/validator for the 14 scenarios — no model or network call, just structural validation (unique case IDs, known categories).">
+        <div class="t">evaluation/cases.py</div><div class="f">load_evaluation_cases()</div>
+      </div>
+      <div class="node cat-iface" id="eval_report" data-tip="Per-phase evidence and mode comparisons: permission-leak checks (DOC-HR-001 never leaked in any phase), retrieval recall (14/15 lexical vs 12/15 semantic vs 13/15 hybrid), and Phase 10's fixes: EVAL-003 (email staleness) and EVAL-013 (GitHub search state default) closed at the root cause, plus 2 more real bugs found and fixed (case-insensitive GitHub label match, an EVAL-005 forbidden_access scoring bug matching Phase 8's EVAL-006 fix pattern). Fresh full run: agent path 12/12 Pass, 0 Partial, 0 Fail. Both release-blocking thresholds (0 forbidden-evidence exposures, 0 unapproved actions) held across Phase 8 and Phase 10. Final Release Recommendation: Demonstrate with explicit limitations — held back from an unqualified 'Demonstrate' only by agent-path latency (12.0–19.2s median, up to 78.3s), disclosed rather than fixed by explicit human-team decision.">
+        <div class="t">EVALUATION_REPORT.md</div><div class="f">deliverables/</div>
+      </div>
+      <div class="node cat-iface small" id="showcase" data-tip="Phase 10. The real, live 7-step demonstration transcript run against the actual application (no mocks): a grounded 4-source answer to the Atlas blocker-status question; the injection-carrying Slack message surfacing via direct retrieval while DOC-HR-001 stayed at zero exposures across every run; a full propose → approve → executed action cycle; and the 4-variant comparison table.">
+        <div class="t">SHOWCASE.md</div><div class="f">deliverables/</div>
+      </div>
+      <div class="node cat-iface" id="governance" data-tip="Human-owned scope, per-source/per-table access policy, and rationale log that the permission checks in Sections 3–6 actually implement, plus every product decision from Phase 1 through Phase 10 (evaluation-runner scoring rules, seven Docker packaging decisions, and Phase 10's four scope decisions) and their implementation-level follow-ons.">
+        <div class="t">PRODUCT_BRIEF · ACCESS_MATRIX · DECISIONS</div><div class="f">deliverables/*.md</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BAND 10 — DEPLOYMENT & PACKAGING -->
+  <section class="band" id="band-10">
+    <div class="band-title">10 · Deployment &amp; Packaging — Phase 9</div>
+    <div class="band-subtitle">packages the existing two interfaces; no application code changed for this phase</div>
+    <div class="band-row">
+      <div class="node cat-deploy live" id="dockerfile" data-tip="Two-stage build: the builder stage runs uv sync --locked against the committed uv.lock, then pre-downloads the sentence-transformers/all-MiniLM-L6-v2 embedding model at build time and sets HF_HUB_OFFLINE=1/TRANSFORMERS_OFFLINE=1 for runtime, so semantic/hybrid retrieval never needs a network round-trip to fetch it later. The runtime stage drops to a non-root appuser at uid/gid 1000 — confirmed to match the actual host user before this was chosen, so the bind-mounted ./data comes out owned correctly with no permission errors.">
+        <div class="t">Dockerfile</div><div class="f">multi-stage, uv-built, non-root runtime</div>
+      </div>
+      <div class="node cat-deploy live" id="compose" data-tip="Two services, api (uvicorn company_assistant.api:app) and streamlit (streamlit run app.py), built from one shared image (ai-agent-project:latest) rather than duplicated builds. Health checks reuse the existing model-free GET /health and Streamlit's own /_stcore/health — no new health-check logic written for containerization. Verified for real: docker compose up --build against a simulated clean checkout, both services reported healthy, a real POST /ask through the containerized API answered correctly with real citations, and state survived a full down/up cycle.">
+        <div class="t">docker-compose.yml</div><div class="f">api + streamlit services, one shared image</div>
+      </div>
+    </div>
+    <div class="callout caution">
+      <span class="icon">⚠</span>
+      <span><b>./data bind mount is the only persistence boundary:</b> data/raw/ and the reproducible
+      company.db fixture are baked into the image at build time (read-only, by design); the Chroma
+      semantic index, app_state.db (proposals/conversation history/feedback), and generated evaluation
+      results all live under the bind-mounted ./data and survive <code>docker compose down &amp;&amp;
+      up</code>. Secrets load only via <code>env_file: .env</code>, never copied into the image. Verified
+      with a simulated clean checkout in Phase 9, not just a successful build.</span>
+    </div>
+  </section>
+
+</div>
+
+<div id="tooltip"></div>
+
+<footer>
+  <p>Static reference diagram — no animation, no build step, no external network dependency. Open directly in any browser.</p>
+  <div class="cols">
+    <div>
+      <strong>Phase status (see PROGRESS_LOG.md)</strong><br>
+      1–10 done: product brief → access matrix → deterministic baseline → live GitHub connector →
+      managed hybrid RAG → tools + agent + human approval → full product experience → comparative
+      evaluation across 4 variants → Docker packaging → root-cause fixes, a fresh full evaluation
+      (agent path 12/12 Pass), a live demonstration, and the final release recommendation.<br>
+      All 10 phases implemented and evidenced. Phase 10's changes are complete but not yet committed,
+      pending human review.
+    </div>
+    <div>
+      <strong>Reading the layout</strong><br>
+      Top → bottom roughly follows one request's journey: raw sources, connectors, the shared
+      CompanyDocument/Answer contracts, permission-checked retrieval, the deterministic service layer
+      (violet hatched — not the live chat path, but the real backend the Phase 8 evaluation runner
+      calls), the agent/tools/approval/feedback layer that is the live chat path since Phase 7, the
+      Phase 8 evaluation runner that exercises all four variants for real, the two interfaces (now
+      including the Evaluation dashboard page), the evaluation &amp; governance material that judges
+      all of it, and the Phase 9 container packaging that ships both interfaces unchanged.
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var wrap = document.getElementById('diagram-wrap');
+  var svg = document.getElementById('edges');
+  var tooltip = document.getElementById('tooltip');
+  var NS = 'http://www.w3.org/2000/svg';
+
+  // Each edge: from/to are node ids. kind: solid | reserved | dotted.
+  // label is the short text shown inline; tip is the full hover explanation.
+  var EDGES = [
+    { from: 'src_slack',    to: 'conn_slack',  kind: 'solid',  label: 'parses JSON' },
+    { from: 'src_email',    to: 'conn_email',  kind: 'solid',  label: 'parses .eml' },
+    { from: 'src_docs',     to: 'conn_docs',   kind: 'solid',  label: 'parses front matter' },
+    { from: 'src_gh_local', to: 'conn_gh',     kind: 'solid',  label: 'fallback path' },
+    { from: 'src_gh_live',  to: 'conn_gh',     kind: 'solid',  label: 'live path (paginated)',
+      tip: 'httpx GET, followed via the Link header until exhausted. Tried on every request before the local fallback.' },
+
+    { from: 'conn_common', to: 'conn_slack', kind: 'solid', label: 'shared validation', thin: true },
+    { from: 'conn_common', to: 'conn_email', kind: 'solid', label: 'shared validation', thin: true },
+    { from: 'conn_common', to: 'conn_docs',  kind: 'solid', label: 'shared validation', thin: true },
+    { from: 'conn_common', to: 'conn_gh',    kind: 'solid', label: 'shared validation', thin: true },
+
+    { from: 'conn_slack', to: 'reg', kind: 'solid', label: 'CompanyDocument list' },
+    { from: 'conn_email', to: 'reg', kind: 'solid', label: 'CompanyDocument list' },
+    { from: 'conn_docs',  to: 'reg', kind: 'solid', label: 'CompanyDocument list' },
+    { from: 'conn_gh',    to: 'reg', kind: 'solid', label: 'CompanyDocument list' },
+
+    { from: 'reg', to: 'model_doc', kind: 'solid', label: '(docs, notes)', tip: 'Returns (documents, source_notes).' },
+    { from: 'src_db', to: 'db_reader', kind: 'solid', label: 'sqlite3 (mode=ro)' },
+
+    { from: 'model_doc', to: 'perm', kind: 'solid', label: 'unstructured documents' },
+    { from: 'perm', to: 'lex', kind: 'solid', label: 'permitted docs only', tip: 'Only documents permitted for this employee’s role reach lexical_search().' },
+    { from: 'model_doc', to: 'idx', kind: 'solid', label: 'chunk, embed & upsert' },
+    { from: 'idx', to: 'sem', kind: 'solid', label: 'role-filtered query', tip: 'Role-filtered ANN query.' },
+    { from: 'lex', to: 'hyb', kind: 'solid', label: 'lexical ranking' },
+    { from: 'sem', to: 'hyb', kind: 'solid', label: 'semantic ranking' },
+
+    { from: 'lex', to: 'svc_base', kind: 'reserved', label: 'SearchResult list' },
+    { from: 'sem', to: 'svc_sem_hyb', kind: 'reserved', label: 'answer_with_semantic()' },
+    { from: 'hyb', to: 'svc_sem_hyb', kind: 'reserved', label: 'answer_with_hybrid()' },
+
+    { from: 'model_doc', to: 'tools', kind: 'solid', label: 'search / compare tools',
+      tip: 'Backs search_company_knowledge (via hybrid_search), search_github_issues, and compare_sources.' },
+    { from: 'hyb', to: 'tools', kind: 'solid', label: 'search_company_knowledge()' },
+    { from: 'db_reader', to: 'tools', kind: 'solid', label: 'lookup_* tools' },
+
+    { from: 'tools', to: 'agent_run', kind: 'solid', label: '6 tools' },
+    { from: 'tools', to: 'state', kind: 'solid', label: 'propose_action() saves' },
+    { from: 'agent_run', to: 'state', kind: 'solid', label: 'conversation history' },
+    { from: 'agent_run', to: 'model_answer', kind: 'solid', label: 'answer_id, warnings[]' },
+    { from: 'state', to: 'approve', kind: 'solid', label: 'get / update', tip: 'get / update proposal.' },
+
+    { from: 'agent_run', to: 'ui_streamlit', kind: 'solid', label: 'Answer (live chat)' },
+    { from: 'agent_run', to: 'ui_api', kind: 'solid', label: 'Answer (live chat)' },
+    { from: 'approve', to: 'ui_streamlit', kind: 'solid', label: 'sidebar approval panel' },
+    { from: 'approve', to: 'ui_api', kind: 'solid', label: 'POST /proposals/{id}/decide' },
+    { from: 'ui_streamlit', to: 'feedback', kind: 'solid', label: 'thumbs + reason picker' },
+    { from: 'ui_api', to: 'feedback', kind: 'solid', label: 'POST /feedback' },
+    { from: 'idx', to: 'ui_streamlit', kind: 'solid', label: 'last-indexed status' },
+    { from: 'idx', to: 'ui_api', kind: 'solid', label: 'last_indexed (/health)' },
+
+    { from: 'svc_base', to: 'runner', kind: 'reserved', label: 'lexical variant', tip: "Backs the runner's lexical variant." },
+    { from: 'svc_sem_hyb', to: 'runner', kind: 'reserved', label: 'semantic/hybrid variants', tip: "Backs the runner's semantic/hybrid variants." },
+    { from: 'agent_run', to: 'runner', kind: 'solid', label: 'agent variant', tip: "Backs the runner's agent variant (real Groq calls)." },
+    { from: 'feedback', to: 'runner', kind: 'solid', label: 'save/get/list (EVAL-014)', tip: 'save/get/list feedback (EVAL-014).' },
+    { from: 'runner', to: 'eval_results', kind: 'solid', label: 'writes json', tip: 'Writes results.json.' },
+    { from: 'eval_results', to: 'ui_eval_dashboard', kind: 'solid', label: 'reads json', tip: 'Reads results.json.' },
+    { from: 'runner', to: 'ui_eval_dashboard', kind: 'solid', label: 'live progress', tip: 'on_progress() live stream.' },
+    { from: 'ui_streamlit', to: 'ui_eval_dashboard', kind: 'dotted', label: 'multipage nav', tip: 'Same Streamlit app, multipage nav.' },
+
+    { from: 'eval_cases_json', to: 'eval_cases_py', kind: 'solid', label: 'load & validate' },
+    { from: 'eval_cases_py', to: 'eval_report', kind: 'dotted', label: '14 scenarios', tip: '14 scenarios, per phase.' },
+    { from: 'governance', to: 'eval_report', kind: 'dotted', label: 'scope evaluated', tip: 'Scope the report evaluates against.' },
+    { from: 'eval_results', to: 'eval_report', kind: 'dotted', label: 'run evidence', tip: 'Phase 8/10 real run evidence.' },
+    { from: 'eval_report', to: 'showcase', kind: 'dotted', label: 'informs demo', tip: 'Informs the live demonstration script.' },
+
+    { from: 'ui_streamlit', to: 'compose', kind: 'solid', label: 'streamlit svc', tip: 'Packaged as the streamlit service.' },
+    { from: 'ui_api', to: 'compose', kind: 'solid', label: 'api svc', tip: 'Packaged as the api service.' },
+    { from: 'dockerfile', to: 'compose', kind: 'solid', label: 'shared image', tip: 'Shared image ai-agent-project:latest.' },
+    { from: 'idx', to: 'dockerfile', kind: 'dotted', label: 'model pre-downloaded', tip: 'Embedding model pre-downloaded at build time.' },
+    { from: 'state', to: 'compose', kind: 'dotted', label: 'persists app_state.db', tip: './data bind mount persists app_state.db.' },
+    { from: 'idx', to: 'compose', kind: 'dotted', label: 'persists Chroma index', tip: './data bind mount persists Chroma index.' }
+  ];
+
+  EDGES.forEach(function (e) {
+    if (!e.tip) e.tip = e.label;
+  });
+
+  function ensureDefs() {
+    var defs = document.createElementNS(NS, 'defs');
+    ['arrow', 'arrow-reserved', 'arrow-dotted'].forEach(function (id) {
+      var marker = document.createElementNS(NS, 'marker');
+      marker.setAttribute('id', id);
+      marker.setAttribute('viewBox', '0 0 10 10');
+      marker.setAttribute('refX', '8.5');
+      marker.setAttribute('refY', '5');
+      marker.setAttribute('markerWidth', '7');
+      marker.setAttribute('markerHeight', '7');
+      marker.setAttribute('orient', 'auto-start-reverse');
+      var path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+      path.setAttribute('fill', id === 'arrow-reserved' ? 'var(--reserved)' : 'var(--line)');
+      marker.appendChild(path);
+      defs.appendChild(marker);
+    });
+    svg.appendChild(defs);
+  }
+
+  // Cubic beziers return both the SVG path string and a pointAt(t) sampler,
+  // so labels can be slid along the real curve instead of pinned to its
+  // geometric midpoint (see placeLabel below).
+  function cubicPoint(p0, p1, p2, p3, t) {
+    var mt = 1 - t;
+    var a = mt * mt * mt, b = 3 * mt * mt * t, c = 3 * mt * t * t, d = t * t * t;
+    return {
+      x: a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+      y: a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]
+    };
+  }
+  function pathFrom(p0, p1, p2, p3) {
+    return 'M' + p0[0] + ',' + p0[1] + ' C' + p1[0] + ',' + p1[1] + ' ' + p2[0] + ',' + p2[1] + ' ' + p3[0] + ',' + p3[1];
+  }
+  function bezierV(x1, y1, x2, y2, seed) {
+    var dy = (y2 - y1) / 2;
+    // A long vertical hop that crosses several bands otherwise runs at a
+    // near-constant x, giving the label search no sideways room to dodge a
+    // wide obstacle (e.g. a callout) directly in its path. Bow it sideways
+    // a little, alternating direction by seed so parallel long edges fan
+    // out instead of all bowing the same way.
+    var bulge = Math.min(70, Math.abs(y2 - y1) * 0.1);
+    var midX = (x1 + x2) / 2 + (seed % 2 === 0 ? 1 : -1) * bulge;
+    var p0 = [x1, y1], p1 = [midX, y1 + dy], p2 = [midX, y2 - dy], p3 = [x2, y2];
+    return { d: pathFrom(p0, p1, p2, p3), pointAt: function (t) { return cubicPoint(p0, p1, p2, p3, t); } };
+  }
+  function bezierH(x1, y1, x2, y2) {
+    var dx = (x2 - x1) / 2;
+    // Same-row pairs that are more than one box apart would otherwise draw
+    // (and label) a near-straight line directly through the boxes in
+    // between, so bow the curve down proportionally to how far it spans.
+    var bulge = Math.min(80, Math.abs(x2 - x1) * 0.2);
+    var midY = (y1 + y2) / 2 + bulge;
+    var p0 = [x1, y1], p1 = [x1 + dx, midY], p2 = [x2 - dx, midY], p3 = [x2, y2];
+    return { d: pathFrom(p0, p1, p2, p3), pointAt: function (t) { return cubicPoint(p0, p1, p2, p3, t); } };
+  }
+
+  function showTooltip(evt, fileLine, text) {
+    tooltip.innerHTML = (fileLine ? '<span class="tt-file">' + fileLine + '</span>' : '') + text;
+    tooltip.classList.add('show');
+    moveTooltip(evt);
+  }
+  function moveTooltip(evt) {
+    var x = evt.clientX + 16;
+    var y = evt.clientY + 16;
+    var maxX = window.innerWidth - 340;
+    var maxY = window.innerHeight - 100;
+    if (x > maxX) x = evt.clientX - 336;
+    if (y > maxY) y = evt.clientY - 60;
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+  }
+  function hideTooltip() { tooltip.classList.remove('show'); }
+
+  // Node hover tooltips
+  Array.prototype.forEach.call(document.querySelectorAll('.node[data-tip]'), function (node) {
+    var fileLine = node.querySelector('.f') ? node.querySelector('.f').textContent : '';
+    node.addEventListener('mouseenter', function (e) { showTooltip(e, fileLine, node.getAttribute('data-tip')); });
+    node.addEventListener('mousemove', moveTooltip);
+    node.addEventListener('mouseleave', hideTooltip);
+  });
+
+  function rectsOverlap(a, b) {
+    return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+  }
+  function hitsAny(rect, list) {
+    for (var i = 0; i < list.length; i++) {
+      if (rectsOverlap(rect, list[i])) return true;
+    }
+    return false;
+  }
+  // Everything a label must stay clear of: every box, every band heading,
+  // every callout. Collected fresh each render() since layout can reflow.
+  function collectObstacles(wrapRect) {
+    var rects = [];
+    Array.prototype.forEach.call(wrap.querySelectorAll('.node, .band-title, .band-subtitle, .callout'), function (el) {
+      var r = el.getBoundingClientRect();
+      rects.push({
+        left: r.left - wrapRect.left, right: r.right - wrapRect.left,
+        top: r.top - wrapRect.top, bottom: r.bottom - wrapRect.top
+      });
+    });
+    return rects;
+  }
+  // Slides a label along its own curve, trying points nearest the midpoint
+  // first, until it finds one clear of every obstacle and every
+  // already-placed label; falls back to the plain midpoint if none is clear.
+  var LABEL_T_CANDIDATES = [
+    0.5, 0.46, 0.54, 0.40, 0.60, 0.34, 0.66, 0.28, 0.72,
+    0.22, 0.78, 0.16, 0.84, 0.10, 0.90, 0.06, 0.94
+  ];
+  function tryCandidates(points, text, obstacles, placedLabelRects) {
+    var estW = Math.max(26, text.length * 6.2 + 18);
+    var estH = 20;
+    var fallback = null;
+    for (var i = 0; i < points.length; i++) {
+      var pt = points[i];
+      var rect = { left: pt.x - estW / 2, right: pt.x + estW / 2, top: pt.y - estH / 2, bottom: pt.y + estH / 2 };
+      if (!fallback) fallback = { pt: pt, rect: rect };
+      if (!hitsAny(rect, obstacles) && !hitsAny(rect, placedLabelRects)) {
+        placedLabelRects.push(rect);
+        return pt;
+      }
+    }
+    return null;
+  }
+  function placeLabel(rec, text, obstacles, placedLabelRects) {
+    // Lateral pairs sit only ~40px apart with no vertical room to dodge on
+    // the line itself, so try shelves just above/below their shared row
+    // first -- the row-to-row gap is far more generous than the box-to-box
+    // gap. Non-lateral edges have no such shelf and go straight to the curve.
+    if (rec.shelfCandidates) {
+      var shelfHit = tryCandidates(rec.shelfCandidates, text, obstacles, placedLabelRects);
+      if (shelfHit) return shelfHit;
+    }
+    var curveHit = tryCandidates(
+      LABEL_T_CANDIDATES.map(function (t) { return rec.curve.pointAt(t); }),
+      text, obstacles, placedLabelRects
+    );
+    if (curveHit) return curveHit;
+    // Last resort for a long edge whose endpoints both sit near the diagram's
+    // center: every point ON the curve stays in that same crowded center
+    // column (a bezier passes exactly through its own endpoints, so no bulge
+    // can rescue points near t=0/1). The margins beside a centered obstacle
+    // like a callout are open, so try sliding sideways at the midpoint height
+    // before giving up and accepting an overlap.
+    if (rec.wideCandidates) {
+      var wideHit = tryCandidates(rec.wideCandidates, text, obstacles, placedLabelRects);
+      if (wideHit) return wideHit;
+    }
+    var fallbackPt = rec.curve.pointAt(0.5);
+    var estW = Math.max(26, text.length * 6.2 + 18), estH = 20;
+    placedLabelRects.push({ left: fallbackPt.x - estW / 2, right: fallbackPt.x + estW / 2, top: fallbackPt.y - estH / 2, bottom: fallbackPt.y + estH / 2 });
+    return fallbackPt;
+  }
+
+  function render() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    Array.prototype.forEach.call(wrap.querySelectorAll('.edge-label'), function (el) { el.remove(); });
+
+    var wrapRect = wrap.getBoundingClientRect();
+    ensureDefs();
+    var obstacles = collectObstacles(wrapRect);
+    var placedLabelRects = [];
+    var records = [];
+
+    // Pass 1: draw every line (in EDGES order, so overlapping lines stack
+    // predictably) and record its curve for the label pass below.
+    EDGES.forEach(function (edge, i) {
+      var fromEl = document.getElementById(edge.from);
+      var toEl = document.getElementById(edge.to);
+      if (!fromEl || !toEl) return;
+      var fr = fromEl.getBoundingClientRect();
+      var tr = toEl.getBoundingClientRect();
+
+      // Same-row (lateral) pairs connect side-to-side; everything else connects
+      // top/bottom, in whichever vertical direction the target actually sits.
+      var verticalGap = Math.min(fr.height, tr.height) / 2 + 24;
+      var lateral = Math.abs((tr.top + tr.height / 2) - (fr.top + fr.height / 2)) < verticalGap;
+
+      var x1, y1, x2, y2, curve, shelfCandidates, wideCandidates;
+      if (lateral) {
+        var rightward = (tr.left + tr.width / 2) >= (fr.left + fr.width / 2);
+        y1 = fr.top + fr.height / 2 - wrapRect.top;
+        y2 = tr.top + tr.height / 2 - wrapRect.top;
+        x1 = (rightward ? fr.right : fr.left) - wrapRect.left;
+        x2 = (rightward ? tr.left : tr.right) - wrapRect.left;
+        curve = bezierH(x1, y1, x2, y2);
+
+        var rowTop = Math.min(fr.top, tr.top) - wrapRect.top;
+        var rowBottom = Math.max(fr.bottom, tr.bottom) - wrapRect.top;
+        var midX = (x1 + x2) / 2;
+        var minShelfCx = 90, maxShelfCx = wrapRect.width - 90;
+        shelfCandidates = [];
+        [rowBottom + 18, rowTop - 18].forEach(function (shelfY) {
+          [0, -30, 30, -60, 60, -95, 95, -135, 135].forEach(function (dx) {
+            var cx = midX + dx;
+            if (cx >= minShelfCx && cx <= maxShelfCx) shelfCandidates.push({ x: cx, y: shelfY });
+          });
+        });
+      } else {
+        var downward = tr.top >= fr.top;
+        x1 = fr.left + fr.width / 2 - wrapRect.left;
+        y1 = (downward ? fr.bottom : fr.top) - wrapRect.top;
+        x2 = tr.left + tr.width / 2 - wrapRect.left;
+        y2 = (downward ? tr.top : tr.bottom) - wrapRect.top;
+        curve = bezierV(x1, y1, x2, y2, i);
+
+        var midYv = (y1 + y2) / 2, midXv = (x1 + x2) / 2;
+        var minCx = 110, maxCx = wrapRect.width - 110;
+        wideCandidates = [];
+        [0, -220, 220, -350, 350, -450, 450, -550, 550].forEach(function (dx) {
+          var cx = midXv + dx;
+          if (cx >= minCx && cx <= maxCx) wideCandidates.push({ x: cx, y: midYv });
+        });
+      }
+      var d = curve.d;
+      var markerId = edge.kind === 'reserved' ? 'arrow-reserved' : (edge.kind === 'dotted' ? 'arrow-dotted' : 'arrow');
+
+      var visible = document.createElementNS(NS, 'path');
+      visible.setAttribute('d', d);
+      visible.setAttribute('class', 'edge-line' + (edge.kind !== 'solid' ? ' ' + edge.kind : '') + (edge.thin ? '' : ''));
+      if (edge.kind !== 'dotted') visible.setAttribute('marker-end', 'url(#' + markerId + ')');
+      visible.setAttribute('id', 'edge-line-' + i);
+      svg.appendChild(visible);
+
+      var hit = document.createElementNS(NS, 'path');
+      hit.setAttribute('d', d);
+      hit.setAttribute('class', 'edge-hit');
+      svg.appendChild(hit);
+
+      records.push({
+        edge: edge, curve: curve, visible: visible, hit: hit,
+        span: Math.hypot(x2 - x1, y2 - y1),
+        shelfCandidates: shelfCandidates, wideCandidates: wideCandidates
+      });
+    });
+
+    // Pass 2: place labels shortest-span-first. A short hop between two
+    // adjacent boxes has almost no room to dodge an obstacle, so it must
+    // claim whatever clear sliver exists before a long, flexible edge (which
+    // can slide across a whole gap between bands) uses it up instead.
+    records.slice().sort(function (a, b) { return a.span - b.span; }).forEach(function (rec) {
+      var edge = rec.edge;
+      var labelPt = placeLabel(rec, edge.label, obstacles, placedLabelRects);
+      var label = document.createElement('div');
+      label.className = 'edge-label';
+      label.style.left = labelPt.x + 'px';
+      label.style.top = labelPt.y + 'px';
+      label.textContent = edge.label;
+      wrap.appendChild(label);
+
+      function onEnter(e) {
+        rec.visible.classList.add('hot');
+        showTooltip(e, edge.from + '  →  ' + edge.to, edge.tip);
+      }
+      function onLeave() { rec.visible.classList.remove('hot'); hideTooltip(); }
+      [rec.hit, label].forEach(function (el) {
+        el.addEventListener('mouseenter', onEnter);
+        el.addEventListener('mousemove', moveTooltip);
+        el.addEventListener('mouseleave', onLeave);
+      });
+    });
+  }
+
+  render();
+  var resizeTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(render, 120);
+  });
+  window.addEventListener('load', render);
+})();
+</script>
+
+</body>
+</html>

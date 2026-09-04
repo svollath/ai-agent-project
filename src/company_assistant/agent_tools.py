@@ -64,7 +64,15 @@ def _build_search_company_knowledge_tool(
 
 
 class SearchGitHubIssuesArgs(BaseModel):
-    state: str = Field(default="open", description="Issue state filter: 'open', 'closed', or 'all'.")
+    state: str = Field(
+        default="all",
+        description=(
+            "Issue state filter: 'open', 'closed', or 'all'. Defaults to 'all' so a "
+            "question that doesn't mention status isn't silently narrowed to only "
+            "open issues; pass 'open' explicitly when the question specifically "
+            "asks about open issues."
+        ),
+    )
     label: str | None = Field(
         default=None, description="Filter by one label, e.g. 'finance-review'. Omit for no label filter."
     )
@@ -79,13 +87,16 @@ def _build_search_github_issues_tool(
         if document.source_type == "github" and employee.role in document.allowed_roles
     ]
 
-    def _run(state: str = "open", label: str | None = None) -> tuple[str, list[str]]:
+    def _run(state: str = "all", label: str | None = None) -> tuple[str, list[str]]:
         matches = []
         for document in github_documents:
             if state != "all" and document.metadata.get("state") != state:
                 continue
             document_labels = str(document.metadata.get("labels", "")).split(",")
-            if label and label not in document_labels:
+            # Case-insensitive: real GitHub labels are lowercase by convention,
+            # but a question phrased in title case (e.g. "Atlas issues") can
+            # lead the model to pass the label back capitalized the same way.
+            if label and label.lower() not in [dl.lower() for dl in document_labels]:
                 continue
             matches.append(document)
         if not matches:
